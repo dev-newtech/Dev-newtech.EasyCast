@@ -1,0 +1,156 @@
+//@version=5
+// ============================================================================
+//  Niveaux clés : Jour / Jour précédent / Asie / New York
+//  - H-Today / L-Today : plus haut / plus bas de la journée en cours (orange)
+//  - HPD / LPD         : plus haut / plus bas de la journée précédente (rouge)
+//  - MPD               : milieu entre HPD et LPD (violet)
+//  - H-Asia / L-Asia   : plus haut / plus bas de la session Asie (gris)
+//  - H-NY / L-NY       : plus haut / plus bas de la session New York (vert)
+//  Chaque ligne porte son étiquette et se met à jour automatiquement.
+// ============================================================================
+indicator("Niveaux Jour / PD / Asie / NY", shorttitle = "Session Levels", overlay = true, max_lines_count = 50, max_labels_count = 50)
+
+// ─── Réglages généraux ──────────────────────────────────────────────────────
+grpG       = "Général"
+extendBars = input.int(10, "Prolongement à droite (barres)", minval = 1, group = grpG)
+showPrice  = input.bool(true, "Afficher le prix dans l'étiquette", group = grpG)
+lineWidth  = input.int(1, "Épaisseur des lignes", minval = 1, maxval = 5, group = grpG)
+styleIn    = input.string("Plein", "Style des lignes", options = ["Plein", "Tirets", "Pointillé"], group = grpG)
+lblSizeIn  = input.string("Petite", "Taille des étiquettes", options = ["Minuscule", "Petite", "Normale"], group = grpG)
+tz         = input.string("America/New_York", "Fuseau horaire des sessions", group = grpG)
+
+// ─── Journée en cours / précédente ──────────────────────────────────────────
+grpD      = "Journée"
+showToday = input.bool(true, "Afficher H-Today / L-Today", group = grpD)
+colToday  = input.color(color.orange, "Couleur H-Today / L-Today", group = grpD)
+showPD    = input.bool(true, "Afficher HPD / LPD", group = grpD)
+colPD     = input.color(color.red, "Couleur HPD / LPD", group = grpD)
+showMPD   = input.bool(true, "Afficher MPD", group = grpD)
+colMPD    = input.color(color.purple, "Couleur MPD", group = grpD)
+
+// ─── Session Asie ───────────────────────────────────────────────────────────
+grpA      = "Session Asie"
+showAsia  = input.bool(true, "Afficher H-Asia / L-Asia", group = grpA)
+colAsia   = input.color(color.gray, "Couleur H-Asia / L-Asia", group = grpA)
+asiaMode  = input.string("Calcul interne", "Source des valeurs", options = ["Calcul interne", "Indicateur AsianRange (Nico948)"], group = grpA,
+     tooltip = "« Calcul interne » : le script calcule le range sur la plage horaire ci-dessous (réglez-la comme dans AsianRange de Nico948).\n« Indicateur AsianRange » : ajoutez AsianRange sur le même graphique puis choisissez ses sorties High/Low dans les deux champs ci-dessous.")
+asiaSess  = input.session("2000-0000", "Plage horaire Asie", group = grpA)
+asiaHSrc  = input.source(high, "H-Asia ← sortie High de AsianRange", group = grpA)
+asiaLSrc  = input.source(low, "L-Asia ← sortie Low de AsianRange", group = grpA)
+
+// ─── Session New York ───────────────────────────────────────────────────────
+grpN   = "Session New York"
+showNY = input.bool(true, "Afficher H-NY / L-NY", group = grpN)
+colNY  = input.color(color.green, "Couleur H-NY / L-NY", group = grpN)
+nySess = input.session("0930-1600", "Plage horaire New York", group = grpN)
+
+// ─── Helpers ────────────────────────────────────────────────────────────────
+lnStyle = styleIn == "Tirets" ? line.style_dashed : styleIn == "Pointillé" ? line.style_dotted : line.style_solid
+lblSize = lblSizeIn == "Minuscule" ? size.tiny : lblSizeIn == "Normale" ? size.normal : size.small
+
+newLine(color c) =>
+    line.new(bar_index, na, bar_index, na, color = c, width = lineWidth, style = lnStyle)
+
+newLabel(color c) =>
+    label.new(bar_index, na, "", color = color.new(color.black, 100), textcolor = c, style = label.style_label_left, size = lblSize)
+
+// Met à jour une ligne + son étiquette ; masque l'ensemble si non affiché ou valeur absente
+setLevel(line ln, label lb, int x1, float y, string txt, bool show) =>
+    if show and not na(y) and not na(x1)
+        x2 = bar_index + extendBars
+        line.set_xy1(ln, x1, y)
+        line.set_xy2(ln, x2, y)
+        label.set_xy(lb, x2, y)
+        label.set_text(lb, showPrice ? txt + " " + str.tostring(y, format.mintick) : txt)
+    else
+        line.set_y1(ln, na)
+        line.set_y2(ln, na)
+        label.set_y(lb, na)
+        label.set_text(lb, "")
+
+// ─── Journée en cours (calcul barre par barre, mise à jour en temps réel) ──
+newDay = timeframe.change("D")
+var int   dayStart = na
+var float tH       = na
+var float tL       = na
+if newDay or na(tH)
+    dayStart := bar_index
+    tH       := high
+    tL       := low
+else
+    tH := math.max(tH, high)
+    tL := math.min(tL, low)
+
+// ─── Journée précédente (bougie journalière confirmée, sans repaint) ───────
+[pdH, pdL] = request.security(syminfo.tickerid, "D", [high[1], low[1]], lookahead = barmerge.lookahead_on)
+mpd        = (pdH + pdL) / 2
+
+// ─── Session Asie ───────────────────────────────────────────────────────────
+inAsia = not na(time(timeframe.period, asiaSess, tz))
+var int   asiaStart = na
+var float aH        = na
+var float aL        = na
+if inAsia and not inAsia[1]
+    asiaStart := bar_index
+    aH        := high
+    aL        := low
+else if inAsia
+    aH := math.max(aH, high)
+    aL := math.min(aL, low)
+
+useExt = asiaMode == "Indicateur AsianRange (Nico948)"
+asiaH  = useExt ? asiaHSrc : aH
+asiaL  = useExt ? asiaLSrc : aL
+
+// ─── Session New York ───────────────────────────────────────────────────────
+inNY = not na(time(timeframe.period, nySess, tz))
+var int   nyStart = na
+var float nH      = na
+var float nL      = na
+if inNY and not inNY[1]
+    nyStart := bar_index
+    nH      := high
+    nL      := low
+else if inNY
+    nH := math.max(nH, high)
+    nL := math.min(nL, low)
+
+// ─── Objets graphiques (créés une seule fois) ──────────────────────────────
+var line  lnTH  = newLine(colToday)
+var line  lnTL  = newLine(colToday)
+var line  lnPDH = newLine(colPD)
+var line  lnPDL = newLine(colPD)
+var line  lnMPD = newLine(colMPD)
+var line  lnAH  = newLine(colAsia)
+var line  lnAL  = newLine(colAsia)
+var line  lnNH  = newLine(colNY)
+var line  lnNL  = newLine(colNY)
+
+var label lbTH  = newLabel(colToday)
+var label lbTL  = newLabel(colToday)
+var label lbPDH = newLabel(colPD)
+var label lbPDL = newLabel(colPD)
+var label lbMPD = newLabel(colMPD)
+var label lbAH  = newLabel(colAsia)
+var label lbAL  = newLabel(colAsia)
+var label lbNH  = newLabel(colNY)
+var label lbNL  = newLabel(colNY)
+
+// ─── Dessin sur la dernière barre (se met à jour à chaque tick) ────────────
+if barstate.islast
+    setLevel(lnTH,  lbTH,  dayStart, tH,  "H-Today", showToday)
+    setLevel(lnTL,  lbTL,  dayStart, tL,  "L-Today", showToday)
+    setLevel(lnPDH, lbPDH, dayStart, pdH, "HPD",     showPD)
+    setLevel(lnPDL, lbPDL, dayStart, pdL, "LPD",     showPD)
+    setLevel(lnMPD, lbMPD, dayStart, mpd, "MPD",     showMPD)
+    setLevel(lnAH,  lbAH,  nz(asiaStart, dayStart), asiaH, "H-Asia", showAsia)
+    setLevel(lnAL,  lbAL,  nz(asiaStart, dayStart), asiaL, "L-Asia", showAsia)
+    setLevel(lnNH,  lbNH,  nz(nyStart, dayStart),   nH,    "H-NY",   showNY)
+    setLevel(lnNL,  lbNL,  nz(nyStart, dayStart),   nL,    "L-NY",   showNY)
+
+// ─── Alertes (optionnel) ────────────────────────────────────────────────────
+alertcondition(ta.cross(close, pdH),  "Croisement HPD",    "Le prix croise HPD")
+alertcondition(ta.cross(close, pdL),  "Croisement LPD",    "Le prix croise LPD")
+alertcondition(ta.cross(close, mpd),  "Croisement MPD",    "Le prix croise MPD")
+alertcondition(ta.cross(close, asiaH), "Croisement H-Asia", "Le prix croise H-Asia")
+alertcondition(ta.cross(close, asiaL), "Croisement L-Asia", "Le prix croise L-Asia")
