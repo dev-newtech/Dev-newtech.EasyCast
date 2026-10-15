@@ -2,6 +2,7 @@
 // ============================================================================
 //  Niveaux clés : Jour / Jour précédent / Asie / New York
 //  - H-Today / L-Today : plus haut / plus bas de la journée en cours (orange)
+//  - M-Today           : milieu de la journée en cours (jaune)
 //  - HPD / LPD         : plus haut / plus bas de la journée précédente (rouge)
 //  - MPD               : milieu entre HPD et LPD (violet)
 //  - H-Asia / L-Asia   : plus haut / plus bas de la session Asie (gris)
@@ -25,6 +26,8 @@ tz         = input.string("America/New_York", "Fuseau horaire des sessions", gro
 grpD      = "Journée"
 showToday = input.bool(true, "Afficher H-Today / L-Today", group = grpD)
 colToday  = input.color(color.orange, "Couleur H-Today / L-Today", group = grpD)
+showMT    = input.bool(true, "Afficher M-Today", group = grpD)
+colMT     = input.color(color.yellow, "Couleur M-Today", group = grpD)
 showPD    = input.bool(true, "Afficher HPD / LPD", group = grpD)
 colPD     = input.color(color.red, "Couleur HPD / LPD", group = grpD)
 showMPD   = input.bool(true, "Afficher MPD", group = grpD)
@@ -83,6 +86,7 @@ if newDay or na(tH)
 else
     tH := math.max(tH, high)
     tL := math.min(tL, low)
+mToday = (tH + tL) / 2
 
 // ─── Journée précédente (bougie journalière confirmée, sans repaint) ───────
 [pdH, pdL] = request.security(syminfo.tickerid, "D", [high[1], low[1]], lookahead = barmerge.lookahead_on)
@@ -121,6 +125,7 @@ else if inNY
 // ─── Objets graphiques (créés une seule fois) ──────────────────────────────
 var line  lnTH  = newLine(colToday)
 var line  lnTL  = newLine(colToday)
+var line  lnMT  = newLine(colMT)
 var line  lnPDH = newLine(colPD)
 var line  lnPDL = newLine(colPD)
 var line  lnMPD = newLine(colMPD)
@@ -131,6 +136,7 @@ var line  lnNL  = newLine(colNY)
 
 var label lbTH  = newLabel(colToday)
 var label lbTL  = newLabel(colToday)
+var label lbMT  = newLabel(colMT)
 var label lbPDH = newLabel(colPD)
 var label lbPDL = newLabel(colPD)
 var label lbMPD = newLabel(colMPD)
@@ -143,6 +149,7 @@ var label lbNL  = newLabel(colNY)
 if barstate.islast
     setLevel(lnTH,  lbTH,  dayStart, tH,  "H-Today", showToday, colToday)
     setLevel(lnTL,  lbTL,  dayStart, tL,  "L-Today", showToday, colToday)
+    setLevel(lnMT,  lbMT,  dayStart, mToday, "M-Today", showMT, colMT)
     setLevel(lnPDH, lbPDH, dayStart, pdH, "HPD",     showPD, colPD)
     setLevel(lnPDL, lbPDL, dayStart, pdL, "LPD",     showPD, colPD)
     setLevel(lnMPD, lbMPD, dayStart, mpd, "MPD",     showMPD, colMPD)
@@ -154,6 +161,7 @@ if barstate.islast
 // ─── Valeurs visibles dans la fenêtre de données (pas de tracé sur le graphique)
 plot(tH,    "H-Today", colToday, display = display.data_window)
 plot(tL,    "L-Today", colToday, display = display.data_window)
+plot(mToday, "M-Today", colMT,   display = display.data_window)
 plot(pdH,   "HPD",     colPD,    display = display.data_window)
 plot(pdL,   "LPD",     colPD,    display = display.data_window)
 plot(mpd,   "MPD",     colMPD,   display = display.data_window)
