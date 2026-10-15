@@ -64,10 +64,12 @@ setLevel(line ln, label lb, int x1, float y, string txt, bool show, color c) =>
         line.set_xy1(ln, x1, y)
         line.set_xy2(ln, x2, y)
         label.set_xy(lb, bar_index + lblOffset, y)
+        label.set_color(lb, lblFill ? c : color.new(c, 100))
         label.set_text(lb, showPrice ? txt + " " + str.tostring(y, format.mintick) : txt)
     else
         line.set_color(ln, color.new(color.black, 100))
         label.set_text(lb, "")
+        label.set_color(lb, color.new(c, 100))
 
 // ─── Journée en cours (calcul barre par barre, mise à jour en temps réel) ──
 newDay = timeframe.change("D")
