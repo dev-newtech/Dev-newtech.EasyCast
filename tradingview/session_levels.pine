@@ -49,23 +49,22 @@ lnStyle = styleIn == "Tirets" ? line.style_dashed : styleIn == "Pointillé" ? li
 lblSize = lblSizeIn == "Minuscule" ? size.tiny : lblSizeIn == "Normale" ? size.normal : size.small
 
 newLine(color c) =>
-    line.new(bar_index, na, bar_index, na, color = c, width = lineWidth, style = lnStyle)
+    line.new(bar_index, close, bar_index, close, xloc = xloc.bar_index, color = c, width = lineWidth, style = lnStyle)
 
 newLabel(color c) =>
-    label.new(bar_index, na, "", color = color.new(color.black, 100), textcolor = c, style = label.style_label_left, size = lblSize)
+    label.new(bar_index, close, "", xloc = xloc.bar_index, color = color.new(color.black, 100), textcolor = c, style = label.style_label_left, size = lblSize)
 
 // Met à jour une ligne + son étiquette ; masque l'ensemble si non affiché ou valeur absente
-setLevel(line ln, label lb, int x1, float y, string txt, bool show) =>
+setLevel(line ln, label lb, int x1, float y, string txt, bool show, color c) =>
     if show and not na(y) and not na(x1)
         x2 = bar_index + extendBars
+        line.set_color(ln, c)
         line.set_xy1(ln, x1, y)
         line.set_xy2(ln, x2, y)
         label.set_xy(lb, x2, y)
         label.set_text(lb, showPrice ? txt + " " + str.tostring(y, format.mintick) : txt)
     else
-        line.set_y1(ln, na)
-        line.set_y2(ln, na)
-        label.set_y(lb, na)
+        line.set_color(ln, color.new(color.black, 100))
         label.set_text(lb, "")
 
 // ─── Journée en cours (calcul barre par barre, mise à jour en temps réel) ──
@@ -138,15 +137,26 @@ var label lbNL  = newLabel(colNY)
 
 // ─── Dessin sur la dernière barre (se met à jour à chaque tick) ────────────
 if barstate.islast
-    setLevel(lnTH,  lbTH,  dayStart, tH,  "H-Today", showToday)
-    setLevel(lnTL,  lbTL,  dayStart, tL,  "L-Today", showToday)
-    setLevel(lnPDH, lbPDH, dayStart, pdH, "HPD",     showPD)
-    setLevel(lnPDL, lbPDL, dayStart, pdL, "LPD",     showPD)
-    setLevel(lnMPD, lbMPD, dayStart, mpd, "MPD",     showMPD)
-    setLevel(lnAH,  lbAH,  nz(asiaStart, dayStart), asiaH, "H-Asia", showAsia)
-    setLevel(lnAL,  lbAL,  nz(asiaStart, dayStart), asiaL, "L-Asia", showAsia)
-    setLevel(lnNH,  lbNH,  nz(nyStart, dayStart),   nH,    "H-NY",   showNY)
-    setLevel(lnNL,  lbNL,  nz(nyStart, dayStart),   nL,    "L-NY",   showNY)
+    setLevel(lnTH,  lbTH,  dayStart, tH,  "H-Today", showToday, colToday)
+    setLevel(lnTL,  lbTL,  dayStart, tL,  "L-Today", showToday, colToday)
+    setLevel(lnPDH, lbPDH, dayStart, pdH, "HPD",     showPD, colPD)
+    setLevel(lnPDL, lbPDL, dayStart, pdL, "LPD",     showPD, colPD)
+    setLevel(lnMPD, lbMPD, dayStart, mpd, "MPD",     showMPD, colMPD)
+    setLevel(lnAH,  lbAH,  nz(asiaStart, dayStart), asiaH, "H-Asia", showAsia, colAsia)
+    setLevel(lnAL,  lbAL,  nz(asiaStart, dayStart), asiaL, "L-Asia", showAsia, colAsia)
+    setLevel(lnNH,  lbNH,  nz(nyStart, dayStart),   nH,    "H-NY",   showNY, colNY)
+    setLevel(lnNL,  lbNL,  nz(nyStart, dayStart),   nL,    "L-NY",   showNY, colNY)
+
+// ─── Valeurs visibles dans la fenêtre de données (pas de tracé sur le graphique)
+plot(tH,    "H-Today", colToday, display = display.data_window)
+plot(tL,    "L-Today", colToday, display = display.data_window)
+plot(pdH,   "HPD",     colPD,    display = display.data_window)
+plot(pdL,   "LPD",     colPD,    display = display.data_window)
+plot(mpd,   "MPD",     colMPD,   display = display.data_window)
+plot(asiaH, "H-Asia",  colAsia,  display = display.data_window)
+plot(asiaL, "L-Asia",  colAsia,  display = display.data_window)
+plot(nH,    "H-NY",    colNY,    display = display.data_window)
+plot(nL,    "L-NY",    colNY,    display = display.data_window)
 
 // ─── Alertes (optionnel) ────────────────────────────────────────────────────
 alertcondition(ta.cross(close, pdH),  "Croisement HPD",    "Le prix croise HPD")
