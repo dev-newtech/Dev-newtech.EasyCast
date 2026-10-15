@@ -17,6 +17,9 @@ grpG       = "Général"
 extendBars = input.int(20, "Prolongement à droite (barres)", minval = 1, group = grpG)
 lblOffset  = input.int(3, "Position de l'étiquette (barres après la dernière bougie)", minval = 0, group = grpG)
 lblFill    = input.bool(true, "Étiquette avec fond coloré", group = grpG)
+lblGapAtr  = input.float(1.0, "Écart min. entre étiquettes (× ATR) avant décalage", minval = 0, step = 0.1, group = grpG,
+     tooltip = "Si deux niveaux sont plus proches que cet écart, leurs étiquettes sont placées l'une devant l'autre au lieu de se superposer.")
+lblShift   = input.int(14, "Décalage horizontal entre étiquettes proches (barres)", minval = 1, group = grpG)
 showPrice  = input.bool(true, "Afficher le prix dans l'étiquette", group = grpG)
 lineWidth  = input.int(1, "Épaisseur des lignes", minval = 1, maxval = 5, group = grpG)
 styleIn    = input.string("Plein", "Style des lignes", options = ["Plein", "Tirets", "Pointillé"], group = grpG)
@@ -59,8 +62,13 @@ lblSize = lblSizeIn == "Minuscule" ? size.tiny : lblSizeIn == "Normale" ? size.n
 newLine(color c) =>
     line.new(bar_index, close, bar_index, close, xloc = xloc.bar_index, color = c, width = lineWidth, style = lnStyle)
 
+// Texte noir sur fond clair (ex. jaune), blanc sur fond foncé
+txtColor(color c) =>
+    lum = 0.299 * color.r(c) + 0.587 * color.g(c) + 0.114 * color.b(c)
+    lblFill ? (lum > 160 ? color.black : color.white) : c
+
 newLabel(color c) =>
-    label.new(bar_index, close, "", xloc = xloc.bar_index, color = lblFill ? c : color.new(c, 100), textcolor = lblFill ? color.white : c, style = label.style_label_lower_left, size = lblSize)
+    label.new(bar_index, close, "", xloc = xloc.bar_index, color = lblFill ? c : color.new(c, 100), textcolor = txtColor(c), style = label.style_label_left, size = lblSize)
 
 // Met à jour une ligne + son étiquette ; masque l'ensemble si non affiché ou valeur absente
 setLevel(line ln, label lb, int x1, float y, string txt, bool show, color c) =>
@@ -71,7 +79,8 @@ setLevel(line ln, label lb, int x1, float y, string txt, bool show, color c) =>
         line.set_xy2(ln, x2, y)
         label.set_xy(lb, bar_index + lblOffset, y)
         label.set_color(lb, lblFill ? c : color.new(c, 100))
-        label.set_text(lb, showPrice ? txt + " " + str.tostring(y, format.mintick) : txt)
+        label.set_textcolor(lb, txtColor(c))
+        label.set_text(lb, showPrice ? str.tostring(y, format.mintick) + "  " + txt : txt)
     else
         line.set_color(ln, color.new(color.black, 100))
         label.set_text(lb, "")
@@ -152,6 +161,9 @@ var label lbNL  = newLabel(colNY)
 var line  lnST  = line.new(bar_index, close, bar_index, close * 1.0001, xloc = xloc.bar_index, extend = extend.both, color = colST, width = lineWidth, style = lnStyle)
 var label lbST  = newLabel(colST)
 
+lblGap = ta.atr(14) * lblGapAtr
+NOVAL  = -1.0e20   // remplace les valeurs absentes pour le tri
+
 // ─── Dessin sur la dernière barre (se met à jour à chaque tick) ────────────
 if barstate.islast
     setLevel(lnTH,  lbTH,  dayStart, tH,  "H-Today", showToday, colToday)
@@ -164,11 +176,42 @@ if barstate.islast
     setLevel(lnAL,  lbAL,  nz(asiaStart, dayStart), asiaL, "L-Asia", showAsia, colAsia)
     setLevel(lnNH,  lbNH,  nz(nyStart, dayStart),   nH,    "H-NY",   showNY, colNY)
     setLevel(lnNL,  lbNL,  nz(nyStart, dayStart),   nL,    "L-NY",   showNY, colNY)
+
+    // Étiquettes proches : placées l'une devant l'autre (colonnes) au lieu de se superposer
+    lvLines  = array.from(lnTH, lnTL, lnMT, lnPDH, lnPDL, lnMPD, lnAH, lnAL, lnNH, lnNL)
+    lvLabels = array.from(lbTH, lbTL, lbMT, lbPDH, lbPDL, lbMPD, lbAH, lbAL, lbNH, lbNL)
+    lvPrices = array.from(nz(tH, NOVAL), nz(tL, NOVAL), nz(mToday, NOVAL), nz(pdH, NOVAL), nz(pdL, NOVAL), nz(mpd, NOVAL), nz(asiaH, NOVAL), nz(asiaL, NOVAL), nz(nH, NOVAL), nz(nL, NOVAL))
+    lvShow   = array.from(showToday, showToday, showMT, showPD, showPD, showMPD, showAsia, showAsia, showNY, showNY)
+    placedY  = array.new_float()
+    placedC  = array.new_int()
+    idx      = array.sort_indices(lvPrices, order.descending)
+    for k = 0 to array.size(idx) - 1
+        i = array.get(idx, k)
+        y = array.get(lvPrices, i)
+        if array.get(lvShow, i) and y != NOVAL
+            col = 0
+            searching = true
+            while searching
+                searching := false
+                if array.size(placedY) > 0
+                    for j = 0 to array.size(placedY) - 1
+                        if array.get(placedC, j) == col and math.abs(array.get(placedY, j) - y) < lblGap
+                            col += 1
+                            searching := true
+                            break
+            array.push(placedY, y)
+            array.push(placedC, col)
+            lx = bar_index + lblOffset + col * lblShift
+            label.set_x(array.get(lvLabels, i), lx)
+            line.set_x2(array.get(lvLines, i), math.max(bar_index + extendBars, lx + lblShift))
+
     if showST and not na(dayStart)
         line.set_color(lnST, colST)
         line.set_xy1(lnST, dayStart, tL)
         line.set_xy2(lnST, dayStart, tH)
         label.set_xy(lbST, dayStart, tH)
+        label.set_style(lbST, label.style_label_lower_left)
+        label.set_textcolor(lbST, txtColor(colST))
         label.set_color(lbST, lblFill ? colST : color.new(colST, 100))
         label.set_text(lbST, "Start-Today")
     else
