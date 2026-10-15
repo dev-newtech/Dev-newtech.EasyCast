@@ -3,6 +3,7 @@
 //  Niveaux clés : Jour / Jour précédent / Asie / New York
 //  - H-Today / L-Today : plus haut / plus bas de la journée en cours (orange)
 //  - M-Today           : milieu de la journée en cours (jaune)
+//  - Start-Today       : ligne verticale au début de la journée en cours (noir)
 //  - HPD / LPD         : plus haut / plus bas de la journée précédente (rouge)
 //  - MPD               : milieu entre HPD et LPD (violet)
 //  - H-Asia / L-Asia   : plus haut / plus bas de la session Asie (gris)
@@ -28,6 +29,8 @@ showToday = input.bool(true, "Afficher H-Today / L-Today", group = grpD)
 colToday  = input.color(color.orange, "Couleur H-Today / L-Today", group = grpD)
 showMT    = input.bool(true, "Afficher M-Today", group = grpD)
 colMT     = input.color(color.yellow, "Couleur M-Today", group = grpD)
+showST    = input.bool(true, "Afficher Start-Today", group = grpD)
+colST     = input.color(color.black, "Couleur Start-Today", group = grpD)
 showPD    = input.bool(true, "Afficher HPD / LPD", group = grpD)
 colPD     = input.color(color.red, "Couleur HPD / LPD", group = grpD)
 showMPD   = input.bool(true, "Afficher MPD", group = grpD)
@@ -145,6 +148,10 @@ var label lbAL  = newLabel(colAsia)
 var label lbNH  = newLabel(colNY)
 var label lbNL  = newLabel(colNY)
 
+// Start-Today : ligne verticale sur la première bougie de la journée
+var line  lnST  = line.new(bar_index, close, bar_index, close * 1.0001, xloc = xloc.bar_index, extend = extend.both, color = colST, width = lineWidth, style = lnStyle)
+var label lbST  = newLabel(colST)
+
 // ─── Dessin sur la dernière barre (se met à jour à chaque tick) ────────────
 if barstate.islast
     setLevel(lnTH,  lbTH,  dayStart, tH,  "H-Today", showToday, colToday)
@@ -157,6 +164,17 @@ if barstate.islast
     setLevel(lnAL,  lbAL,  nz(asiaStart, dayStart), asiaL, "L-Asia", showAsia, colAsia)
     setLevel(lnNH,  lbNH,  nz(nyStart, dayStart),   nH,    "H-NY",   showNY, colNY)
     setLevel(lnNL,  lbNL,  nz(nyStart, dayStart),   nL,    "L-NY",   showNY, colNY)
+    if showST and not na(dayStart)
+        line.set_color(lnST, colST)
+        line.set_xy1(lnST, dayStart, tL)
+        line.set_xy2(lnST, dayStart, tH)
+        label.set_xy(lbST, dayStart, tH)
+        label.set_color(lbST, lblFill ? colST : color.new(colST, 100))
+        label.set_text(lbST, "Start-Today")
+    else
+        line.set_color(lnST, color.new(color.black, 100))
+        label.set_text(lbST, "")
+        label.set_color(lbST, color.new(colST, 100))
 
 // ─── Valeurs visibles dans la fenêtre de données (pas de tracé sur le graphique)
 plot(tH,    "H-Today", colToday, display = display.data_window)
