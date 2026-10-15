@@ -12,7 +12,9 @@ indicator("Niveaux Jour / PD / Asie / NY", shorttitle = "Session Levels", overla
 
 // ─── Réglages généraux ──────────────────────────────────────────────────────
 grpG       = "Général"
-extendBars = input.int(10, "Prolongement à droite (barres)", minval = 1, group = grpG)
+extendBars = input.int(20, "Prolongement à droite (barres)", minval = 1, group = grpG)
+lblOffset  = input.int(3, "Position de l'étiquette (barres après la dernière bougie)", minval = 0, group = grpG)
+lblFill    = input.bool(true, "Étiquette avec fond coloré", group = grpG)
 showPrice  = input.bool(true, "Afficher le prix dans l'étiquette", group = grpG)
 lineWidth  = input.int(1, "Épaisseur des lignes", minval = 1, maxval = 5, group = grpG)
 styleIn    = input.string("Plein", "Style des lignes", options = ["Plein", "Tirets", "Pointillé"], group = grpG)
@@ -52,7 +54,7 @@ newLine(color c) =>
     line.new(bar_index, close, bar_index, close, xloc = xloc.bar_index, color = c, width = lineWidth, style = lnStyle)
 
 newLabel(color c) =>
-    label.new(bar_index, close, "", xloc = xloc.bar_index, color = color.new(color.black, 100), textcolor = c, style = label.style_label_left, size = lblSize)
+    label.new(bar_index, close, "", xloc = xloc.bar_index, color = lblFill ? c : color.new(c, 100), textcolor = lblFill ? color.white : c, style = label.style_label_lower_left, size = lblSize)
 
 // Met à jour une ligne + son étiquette ; masque l'ensemble si non affiché ou valeur absente
 setLevel(line ln, label lb, int x1, float y, string txt, bool show, color c) =>
@@ -61,7 +63,7 @@ setLevel(line ln, label lb, int x1, float y, string txt, bool show, color c) =>
         line.set_color(ln, c)
         line.set_xy1(ln, x1, y)
         line.set_xy2(ln, x2, y)
-        label.set_xy(lb, x2, y)
+        label.set_xy(lb, bar_index + lblOffset, y)
         label.set_text(lb, showPrice ? txt + " " + str.tostring(y, format.mintick) : txt)
     else
         line.set_color(ln, color.new(color.black, 100))
