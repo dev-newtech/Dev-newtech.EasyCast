@@ -1,0 +1,187 @@
+//@version=5
+// ============================================================================
+//  Order Blocks multi-unités de temps (M1, M3, M5, M15, M30, H1, H4, D)
+//  - Détection : pivot de volume + structure de marché (même logique que
+//    l'Order Block Detector de LuxAlgo, réglages 5 / 3 / 3 / Wick)
+//  - OB haussier : zone verte (Low → milieu de la bougie)
+//  - OB baissier : zone rouge (milieu de la bougie → High)
+//  - Ligne moyenne grise au milieu de chaque zone
+//  - Chaque zone porte le nom de son unité de temps (M15, H1, ...)
+//  - Une zone disparaît dès qu'elle est mitigée (mèche ou clôture)
+//  Les OB des UT supérieures sont lus sur bougies confirmées : pas de repaint.
+// ============================================================================
+indicator("Order Blocks MTF", shorttitle = "OB MTF", overlay = true, max_boxes_count = 500, max_lines_count = 500, max_labels_count = 10)
+
+// ─── Réglages généraux ──────────────────────────────────────────────────────
+grpG      = "Général"
+volLen    = input.int(5, "Longueur du pivot de volume", minval = 1, group = grpG)
+maxBull   = input.int(3, "Nombre d'OB haussiers par UT", minval = 0, maxval = 20, group = grpG)
+maxBear   = input.int(3, "Nombre d'OB baissiers par UT", minval = 0, maxval = 20, group = grpG)
+mitMode   = input.string("Wick", "Mitigation", options = ["Wick", "Close"], group = grpG,
+     tooltip = "Wick : l'OB disparaît quand une mèche le traverse.\nClose : l'OB disparaît quand une bougie clôture au-delà.")
+hideLower = input.bool(true, "Ignorer les UT inférieures à celle du graphique", group = grpG)
+extendBars = input.int(20, "Prolongement à droite (barres)", minval = 0, group = grpG)
+
+// ─── Unités de temps ────────────────────────────────────────────────────────
+grpT  = "Unités de temps"
+on1   = input.bool(true, "", inline = "t1", group = grpT)
+tf1   = input.timeframe("1", "", inline = "t1", group = grpT)
+on2   = input.bool(true, "", inline = "t2", group = grpT)
+tf2   = input.timeframe("3", "", inline = "t2", group = grpT)
+on3   = input.bool(true, "", inline = "t3", group = grpT)
+tf3   = input.timeframe("5", "", inline = "t3", group = grpT)
+on4   = input.bool(true, "", inline = "t4", group = grpT)
+tf4   = input.timeframe("15", "", inline = "t4", group = grpT)
+on5   = input.bool(true, "", inline = "t5", group = grpT)
+tf5   = input.timeframe("30", "", inline = "t5", group = grpT)
+on6   = input.bool(true, "", inline = "t6", group = grpT)
+tf6   = input.timeframe("60", "", inline = "t6", group = grpT)
+on7   = input.bool(true, "", inline = "t7", group = grpT)
+tf7   = input.timeframe("240", "", inline = "t7", group = grpT)
+on8   = input.bool(true, "", inline = "t8", group = grpT)
+tf8   = input.timeframe("D", "", inline = "t8", group = grpT)
+
+// ─── Style (couleurs identiques à l'Order Block Detector [LuxAlgo]) ─────────
+grpS      = "Style"
+colBull   = input.color(color.new(#169400, 80), "OB haussier", group = grpS)
+colBear   = input.color(color.new(#ff1100, 80), "OB baissier", group = grpS)
+showBord  = input.bool(true, "Bordure des zones", group = grpS)
+showAvg   = input.bool(true, "Ligne moyenne", inline = "avg", group = grpS)
+colAvg    = input.color(color.new(#9598a1, 37), "", inline = "avg", group = grpS)
+avgStyleIn = input.string("──", "Style ligne moyenne", options = ["──", "- - -", "· · ·"], group = grpS)
+avgWidth  = input.int(1, "Épaisseur ligne moyenne", minval = 1, maxval = 5, group = grpS)
+showTfLbl = input.bool(true, "Afficher l'UT dans la zone", group = grpS)
+colTxt    = input.color(color.new(#434651, 0), "Couleur du texte", group = grpS)
+txtSizeIn = input.string("Minuscule", "Taille du texte", options = ["Minuscule", "Petite", "Normale"], group = grpS)
+
+// ─── Helpers ────────────────────────────────────────────────────────────────
+avgStyle = avgStyleIn == "- - -" ? line.style_dashed : avgStyleIn == "· · ·" ? line.style_dotted : line.style_solid
+txtSize  = txtSizeIn == "Petite" ? size.small : txtSizeIn == "Normale" ? size.normal : size.tiny
+
+// Nom court de l'UT : M15, H1, H4, D, W...
+tfLabel(string tf) =>
+    s = timeframe.in_seconds(tf)
+    s < 3600 ? "M" + str.tostring(s / 60, "#") : s < 86400 ? "H" + str.tostring(s / 3600, "#") : s == 86400 ? "D" : s == 604800 ? "W" : tf
+
+tfAllowed(bool on, string tf) =>
+    on and (not hideLower or timeframe.in_seconds(tf) >= timeframe.in_seconds(timeframe.period))
+
+// Détection sur l'UT demandée : renvoie l'OB apparu sur la bougie (sinon na)
+detectOB() =>
+    up = ta.highest(volLen)
+    dn = ta.lowest(volLen)
+    var int ms = 0
+    ms := high[volLen] > up ? 0 : low[volLen] < dn ? 1 : ms
+    phv  = not na(ta.pivothigh(volume, volLen, volLen))
+    bull = phv and ms == 1
+    bear = phv and ms == 0
+    [bull ? time[volLen] : na, bull ? hl2[volLen] : na, bull ? low[volLen] : na,
+     bear ? time[volLen] : na, bear ? high[volLen] : na, bear ? hl2[volLen] : na]
+
+// Valeurs de la bougie précédente (confirmée) → aucun repaint avec lookahead_on
+detectConfirmed() =>
+    [bT, bTop, bBtm, sT, sTop, sBtm] = detectOB()
+    [bT[1], bTop[1], bBtm[1], sT[1], sTop[1], sBtm[1]]
+
+secOB(string tf) =>
+    request.security(syminfo.tickerid, tf, detectConfirmed(), lookahead = barmerge.lookahead_on)
+
+// ─── Stockage des OB actifs ─────────────────────────────────────────────────
+type OB
+    box   bx
+    line  ln
+    float top
+    float btm
+    bool  bull
+    int   tfi
+
+var obs       = array.new<OB>()
+var lastBullT = array.new_int(8, 0)
+var lastBearT = array.new_int(8, 0)
+var newFlags  = array.new_bool(2, false)   // [haussier, baissier] apparu sur cette bougie
+
+deleteOB(int i) =>
+    o = array.remove(obs, i)
+    box.delete(o.bx)
+    line.delete(o.ln)
+
+// Garde uniquement les N OB les plus récents d'une UT / d'un sens
+trimGroup(int tfi, bool bull, int maxN) =>
+    n = 0
+    for o in obs
+        if o.tfi == tfi and o.bull == bull
+            n += 1
+    excess = n - maxN
+    if excess > 0
+        for i = array.size(obs) - 1 to 0
+            if excess > 0
+                o = array.get(obs, i)
+                if o.tfi == tfi and o.bull == bull
+                    deleteOB(i)
+                    excess -= 1
+
+addOB(int tfi, bool bull, int t, float top, float btm, string lbl) =>
+    c   = bull ? colBull : colBear
+    bc  = showBord ? color.new(c, math.max(0, color.t(c) - 40)) : color.new(c, 100)
+    bx  = box.new(t, top, time, btm, xloc = xloc.bar_time, bgcolor = c, border_color = bc,
+         text = showTfLbl ? lbl : "", text_color = colTxt, text_size = txtSize,
+         text_halign = text.align_right, text_valign = text.align_center)
+    avg = (top + btm) / 2
+    ln  = showAvg ? line.new(t, avg, time, avg, xloc = xloc.bar_time, color = colAvg, style = avgStyle, width = avgWidth) : na
+    array.unshift(obs, OB.new(bx, ln, top, btm, bull, tfi))
+    array.set(newFlags, bull ? 0 : 1, true)
+    trimGroup(tfi, bull, bull ? maxBull : maxBear)
+
+handleTF(int tfi, bool allowed, string lbl, int bT, float bTop, float bBtm, int sT, float sTop, float sBtm) =>
+    if allowed
+        if maxBull > 0 and not na(bT) and bT != array.get(lastBullT, tfi)
+            array.set(lastBullT, tfi, bT)
+            addOB(tfi, true, bT, bTop, bBtm, lbl)
+        if maxBear > 0 and not na(sT) and sT != array.get(lastBearT, tfi)
+            array.set(lastBearT, tfi, sT)
+            addOB(tfi, false, sT, sTop, sBtm, lbl)
+
+// ─── Requêtes multi-UT ──────────────────────────────────────────────────────
+[b1T, b1Top, b1Btm, s1T, s1Top, s1Btm] = secOB(tf1)
+[b2T, b2Top, b2Btm, s2T, s2Top, s2Btm] = secOB(tf2)
+[b3T, b3Top, b3Btm, s3T, s3Top, s3Btm] = secOB(tf3)
+[b4T, b4Top, b4Btm, s4T, s4Top, s4Btm] = secOB(tf4)
+[b5T, b5Top, b5Btm, s5T, s5Top, s5Btm] = secOB(tf5)
+[b6T, b6Top, b6Btm, s6T, s6Top, s6Btm] = secOB(tf6)
+[b7T, b7Top, b7Btm, s7T, s7Top, s7Btm] = secOB(tf7)
+[b8T, b8Top, b8Btm, s8T, s8Top, s8Btm] = secOB(tf8)
+
+// ─── Mitigation (sur les bougies du graphique) ──────────────────────────────
+if array.size(obs) > 0
+    for i = array.size(obs) - 1 to 0
+        o   = array.get(obs, i)
+        mit = o.bull ? (mitMode == "Wick" ? low : close) < o.btm : (mitMode == "Wick" ? high : close) > o.top
+        if mit
+            deleteOB(i)
+
+// ─── Nouveaux OB ────────────────────────────────────────────────────────────
+array.fill(newFlags, false)
+handleTF(0, tfAllowed(on1, tf1), tfLabel(tf1), b1T, b1Top, b1Btm, s1T, s1Top, s1Btm)
+handleTF(1, tfAllowed(on2, tf2), tfLabel(tf2), b2T, b2Top, b2Btm, s2T, s2Top, s2Btm)
+handleTF(2, tfAllowed(on3, tf3), tfLabel(tf3), b3T, b3Top, b3Btm, s3T, s3Top, s3Btm)
+handleTF(3, tfAllowed(on4, tf4), tfLabel(tf4), b4T, b4Top, b4Btm, s4T, s4Top, s4Btm)
+handleTF(4, tfAllowed(on5, tf5), tfLabel(tf5), b5T, b5Top, b5Btm, s5T, s5Top, s5Btm)
+handleTF(5, tfAllowed(on6, tf6), tfLabel(tf6), b6T, b6Top, b6Btm, s6T, s6Top, s6Btm)
+handleTF(6, tfAllowed(on7, tf7), tfLabel(tf7), b7T, b7Top, b7Btm, s7T, s7Top, s7Btm)
+handleTF(7, tfAllowed(on8, tf8), tfLabel(tf8), b8T, b8Top, b8Btm, s8T, s8Top, s8Btm)
+
+// ─── Prolongement à droite (dernière barre) ────────────────────────────────
+var label warn = na
+if barstate.islast
+    rightT = time + extendBars * timeframe.in_seconds() * 1000
+    for o in obs
+        box.set_right(o.bx, rightT)
+        line.set_x2(o.ln, rightT)
+    label.delete(warn)
+    if na(volume)
+        warn := label.new(bar_index, high, "OB MTF : ce symbole ne fournit pas de volume,\naucun Order Block ne peut être détecté.",
+             color = color.new(color.red, 0), textcolor = color.white, style = label.style_label_down, size = size.small)
+
+// ─── Alertes (optionnel) ────────────────────────────────────────────────────
+alertcondition(array.get(newFlags, 0), "Nouvel OB haussier", "Un nouvel Order Block haussier est apparu")
+alertcondition(array.get(newFlags, 1), "Nouvel OB baissier", "Un nouvel Order Block baissier est apparu")
