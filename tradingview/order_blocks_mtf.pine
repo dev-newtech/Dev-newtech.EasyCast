@@ -9,8 +9,17 @@
 //  - Chaque zone porte le nom de son unité de temps (M15, H1, ...)
 //  - Une zone disparaît dès qu'elle est mitigée (mèche ou clôture)
 //  Les OB des UT supérieures sont lus sur bougies confirmées : pas de repaint.
+//
+//  Positions Long / Short (style outil Long/Short de TradingView) :
+//  - Signal quand le prix revient tester un OB et le rejette (clôture hors zone)
+//  - Entry = clôture, SL derrière l'OB, TP1 / TP2 / TP3 en multiples du risque
+//  - Scalp si l'OB vient d'une petite UT, Swing sinon
+//  - Chaque signal est suivi jusqu'au TP ou au SL ; le taux de réussite est
+//    mesuré par UT et par sens sur l'historique du graphique. Une position
+//    n'est affichée que si ce taux atteint le minimum demandé (70 % par défaut).
+//    Un taux passé ne garantit pas les résultats futurs.
 // ============================================================================
-indicator("Order Blocks MTF", shorttitle = "OB MTF", overlay = true, max_boxes_count = 500, max_lines_count = 500, max_labels_count = 10)
+indicator("Order Blocks MTF", shorttitle = "OB MTF", overlay = true, max_boxes_count = 500, max_lines_count = 500, max_labels_count = 500)
 
 // ─── Réglages généraux ──────────────────────────────────────────────────────
 grpG      = "Général"
@@ -54,6 +63,32 @@ showTfLbl = input.bool(true, "Afficher l'UT dans la zone", group = grpS)
 colTxt    = input.color(color.new(#434651, 0), "Couleur du texte", group = grpS)
 txtSizeIn = input.string("Minuscule", "Taille du texte", options = ["Minuscule", "Petite", "Normale"], group = grpS)
 
+// ─── Positions Long / Short ─────────────────────────────────────────────────
+grpP      = "Positions Long / Short"
+showPos   = input.bool(true, "Afficher les positions", group = grpP)
+posType   = input.string("Scalp + Swing", "Type de positions", options = ["Scalp + Swing", "Scalp", "Swing"], group = grpP)
+swingTf   = input.timeframe("30", "Swing à partir de l'UT", group = grpP,
+     tooltip = "Un signal sur un OB d'une UT inférieure est un Scalp, sinon un Swing.")
+minWR     = input.float(70, "Taux de réussite minimum (%)", minval = 0, maxval = 100, step = 1, group = grpP)
+minTrades = input.int(10, "Trades passés minimum pour valider le taux", minval = 1, group = grpP,
+     tooltip = "Tant qu'une UT / un sens n'a pas assez de trades dans l'historique, ses positions ne sont pas affichées.")
+winLvlIn  = input.string("TP1", "Trade gagnant si atteint", options = ["TP1", "TP2", "TP3"], group = grpP,
+     tooltip = "Un trade compte comme gagnant s'il atteint ce TP avant le SL. Les trades trop longs comptent comme perdants.")
+tp1R      = input.float(1.0, "TP1 (× risque)", minval = 0.1, step = 0.1, group = grpP)
+tp2R      = input.float(2.0, "TP2 (× risque)", minval = 0.1, step = 0.1, group = grpP)
+tp3R      = input.float(3.0, "TP3 (× risque)", minval = 0.1, step = 0.1, group = grpP)
+slAtr     = input.float(0.2, "Marge du SL derrière l'OB (× ATR)", minval = 0, step = 0.05, group = grpP)
+beAfter1  = input.bool(true, "SL au break-even après TP1", group = grpP)
+maxBarsTr = input.int(300, "Durée max d'un trade (barres)", minval = 1, group = grpP)
+maxShow   = input.int(10, "Nombre de positions affichées", minval = 1, maxval = 50, group = grpP)
+showPx    = input.bool(false, "Afficher les prix sur les niveaux", group = grpP)
+showStats = input.bool(true, "Tableau des taux de réussite", group = grpP)
+colProfit = input.color(color.new(#089981, 80), "Zone profit", inline = "pc", group = grpP)
+colLoss   = input.color(color.new(#f23645, 80), "Zone perte", inline = "pc", group = grpP)
+colLvl    = input.color(#2962ff, "Entry / TP", inline = "pl", group = grpP)
+colSL     = input.color(#f23645, "SL", inline = "pl", group = grpP)
+lvlWidth  = input.int(2, "Épaisseur des niveaux", minval = 1, maxval = 5, group = grpP)
+
 // ─── Helpers ────────────────────────────────────────────────────────────────
 avgStyle = avgStyleIn == "- - -" ? line.style_dashed : avgStyleIn == "· · ·" ? line.style_dotted : line.style_solid
 txtSize  = txtSizeIn == "Petite" ? size.small : txtSizeIn == "Normale" ? size.normal : size.tiny
@@ -94,6 +129,7 @@ type OB
     float btm
     bool  bull
     int   tfi
+    bool  used = false   // un seul signal par OB
 
 var obs       = array.new<OB>()
 var lastBullT = array.new_int(8, 0)
@@ -141,6 +177,181 @@ handleTF(int tfi, bool allowed, string lbl, int bT, float bTop, float bBtm, int 
             array.set(lastBearT, tfi, sT)
             addOB(tfi, false, sT, sTop, sBtm, lbl)
 
+// ─── Positions : suivi, statistiques et dessin ─────────────────────────────
+// Groupe de statistiques = UT × sens (long = tfi*2, short = tfi*2 + 1)
+type Trade
+    bool  lg
+    int   grp
+    int   tfi
+    float entry
+    float sl
+    float stop
+    float tp1
+    float tp2
+    float tp3
+    int   start
+    int   hit      = 0
+    bool  resolved = false
+    bool  shown    = false
+    box   bxP
+    box   bxL
+    line  lnE
+    line  lnS
+    line  ln1
+    line  ln2
+    line  ln3
+    line  lnD
+    label lbE
+    label lbS
+    label lb1
+    label lb2
+    label lb3
+
+var trades   = array.new<Trade>()   // trades en cours (affichés ou non)
+var shownTr  = array.new<Trade>()   // trades dessinés (en cours ou terminés)
+var wins     = array.new_int(16, 0)
+var losses   = array.new_int(16, 0)
+var posFlags = array.new_bool(2, false)   // [long, short] affiché sur cette bougie
+
+winLvl = winLvlIn == "TP2" ? 2 : winLvlIn == "TP3" ? 3 : 1
+atr    = ta.atr(14)
+tfSecs = array.from(timeframe.in_seconds(tf1), timeframe.in_seconds(tf2), timeframe.in_seconds(tf3), timeframe.in_seconds(tf4),
+     timeframe.in_seconds(tf5), timeframe.in_seconds(tf6), timeframe.in_seconds(tf7), timeframe.in_seconds(tf8))
+tfLbls = array.from(tfLabel(tf1), tfLabel(tf2), tfLabel(tf3), tfLabel(tf4), tfLabel(tf5), tfLabel(tf6), tfLabel(tf7), tfLabel(tf8))
+
+grpCount(int g) =>
+    array.get(wins, g) + array.get(losses, g)
+
+winRate(int g) =>
+    n = grpCount(g)
+    n > 0 ? 100.0 * array.get(wins, g) / n : na
+
+hasOpen(int g) =>
+    found = false
+    for t in trades
+        if t.grp == g
+            found := true
+    found
+
+pxTxt(float y) =>
+    showPx ? " " + str.tostring(y, format.mintick) : ""
+
+lvlLabel(int x, float y, string txt, color c) =>
+    label.new(x, y, txt, xloc = xloc.bar_index, color = color.new(c, 100), textcolor = c, style = label.style_label_down, size = size.small)
+
+lvlLine(int x1, int x2, float y, color c) =>
+    line.new(x1, y, x2, y, xloc = xloc.bar_index, color = c, width = lvlWidth)
+
+eraseTrade(Trade t) =>
+    box.delete(t.bxP)
+    box.delete(t.bxL)
+    line.delete(t.lnE)
+    line.delete(t.lnS)
+    line.delete(t.ln1)
+    line.delete(t.ln2)
+    line.delete(t.ln3)
+    line.delete(t.lnD)
+    label.delete(t.lbE)
+    label.delete(t.lbS)
+    label.delete(t.lb1)
+    label.delete(t.lb2)
+    label.delete(t.lb3)
+    t.shown := false
+
+// Étire le dessin jusqu'à x2 ; la diagonale pointillée suit le prix (ou la sortie)
+moveTrade(Trade t, int x2, float yEnd) =>
+    if t.shown
+        xm = math.round((t.start + x2) / 2)
+        box.set_right(t.bxP, x2)
+        box.set_right(t.bxL, x2)
+        line.set_x2(t.lnE, x2)
+        line.set_x2(t.lnS, x2)
+        line.set_x2(t.ln1, x2)
+        line.set_x2(t.ln2, x2)
+        line.set_x2(t.ln3, x2)
+        line.set_xy2(t.lnD, x2, yEnd)
+        label.set_x(t.lbE, xm)
+        label.set_x(t.lbS, xm)
+        label.set_x(t.lb1, xm)
+        label.set_x(t.lb2, xm)
+        label.set_x(t.lb3, xm)
+
+drawTrade(Trade t, string info) =>
+    x1 = t.start
+    x2 = bar_index + 3
+    xm = math.round((x1 + x2) / 2)
+    t.bxP := box.new(x1, t.lg ? t.tp3 : t.entry, x2, t.lg ? t.entry : t.tp3, xloc = xloc.bar_index, bgcolor = colProfit, border_color = color.new(colProfit, 100))
+    t.bxL := box.new(x1, t.lg ? t.entry : t.sl, x2, t.lg ? t.sl : t.entry, xloc = xloc.bar_index, bgcolor = colLoss, border_color = color.new(colLoss, 100))
+    t.lnE := lvlLine(x1, x2, t.entry, colLvl)
+    t.ln1 := lvlLine(x1, x2, t.tp1, colLvl)
+    t.ln2 := lvlLine(x1, x2, t.tp2, colLvl)
+    t.ln3 := lvlLine(x1, x2, t.tp3, colLvl)
+    t.lnS := lvlLine(x1, x2, t.sl, colSL)
+    t.lnD := line.new(x1, t.entry, x2, close, xloc = xloc.bar_index, color = color.new(#787b86, 20), style = line.style_dashed, width = 1)
+    t.lbE := lvlLabel(xm, t.entry, info + "\nEntry" + pxTxt(t.entry), colLvl)
+    t.lb1 := lvlLabel(xm, t.tp1, "TP1" + pxTxt(t.tp1), colLvl)
+    t.lb2 := lvlLabel(xm, t.tp2, "TP2" + pxTxt(t.tp2), colLvl)
+    t.lb3 := lvlLabel(xm, t.tp3, "TP3" + pxTxt(t.tp3), colLvl)
+    t.lbS := lvlLabel(xm, t.sl, "SL" + pxTxt(t.sl), colSL)
+    t.shown := true
+    array.push(shownTr, t)
+    if array.size(shownTr) > maxShow
+        eraseTrade(array.shift(shownTr))
+
+openTrade(bool lg, int tfi, float entry, float sl) =>
+    r = math.abs(entry - sl)
+    if r > 0
+        d = lg ? 1 : -1
+        g = tfi * 2 + (lg ? 0 : 1)
+        t = Trade.new(lg = lg, grp = g, tfi = tfi, entry = entry, sl = sl, stop = sl,
+             tp1 = entry + d * r * tp1R, tp2 = entry + d * r * tp2R, tp3 = entry + d * r * tp3R, start = bar_index)
+        n      = grpCount(g)
+        wr     = winRate(g)
+        swing  = array.get(tfSecs, tfi) >= timeframe.in_seconds(swingTf)
+        typeOk = posType == "Scalp + Swing" or (posType == "Swing") == swing
+        if showPos and typeOk and n >= minTrades and wr >= minWR
+            info = (lg ? "LONG " : "SHORT ") + (swing ? "SWING " : "SCALP ") + array.get(tfLbls, tfi) +
+                 " · " + str.tostring(wr, "#") + "% (" + str.tostring(n) + ")"
+            drawTrade(t, info)
+            array.set(posFlags, lg ? 0 : 1, true)
+        array.push(trades, t)
+
+// Avance un trade d'une bougie ; renvoie true quand il est terminé.
+// Si SL et TP sont touchés dans la même bougie, le SL est compté (prudent).
+updateTrade(Trade t) =>
+    closed = false
+    exitPx = close
+    if bar_index > t.start
+        hitStop = t.lg ? low <= t.stop : high >= t.stop
+        if hitStop
+            closed := true
+            exitPx := t.stop
+        else
+            reach1 = t.lg ? high >= t.tp1 : low <= t.tp1
+            reach2 = t.lg ? high >= t.tp2 : low <= t.tp2
+            reach3 = t.lg ? high >= t.tp3 : low <= t.tp3
+            if t.hit < 1 and reach1
+                t.hit := 1
+                if beAfter1
+                    t.stop := t.entry
+            if t.hit < 2 and reach2
+                t.hit := 2
+            if t.hit < 3 and reach3
+                t.hit := 3
+                closed := true
+                exitPx := t.tp3
+        if not closed and bar_index - t.start >= maxBarsTr
+            closed := true
+        if not t.resolved
+            if t.hit >= winLvl
+                t.resolved := true
+                array.set(wins, t.grp, array.get(wins, t.grp) + 1)
+            else if closed
+                t.resolved := true
+                array.set(losses, t.grp, array.get(losses, t.grp) + 1)
+        moveTrade(t, closed ? bar_index : bar_index + 3, exitPx)
+    closed
+
 // ─── Requêtes multi-UT ──────────────────────────────────────────────────────
 [b1T, b1Top, b1Btm, s1T, s1Top, s1Btm] = secOB(tf1)
 [b2T, b2Top, b2Btm, s2T, s2Top, s2Btm] = secOB(tf2)
@@ -158,6 +369,24 @@ if array.size(obs) > 0
         mit = o.bull ? (mitMode == "Wick" ? low : close) < o.btm : (mitMode == "Wick" ? high : close) > o.top
         if mit
             deleteOB(i)
+
+// ─── Suivi des trades en cours ──────────────────────────────────────────────
+if array.size(trades) > 0
+    for i = array.size(trades) - 1 to 0
+        if updateTrade(array.get(trades, i))
+            array.remove(trades, i)
+
+// ─── Signaux : retour sur un OB puis rejet (bougie clôturée) ───────────────
+array.fill(posFlags, false)
+if barstate.isconfirmed
+    for o in obs
+        if not o.used
+            if o.bull and low <= o.top and close > o.top and close > open and not hasOpen(o.tfi * 2)
+                o.used := true
+                openTrade(true, o.tfi, close, o.btm - atr * slAtr)
+            else if not o.bull and high >= o.btm and close < o.btm and close < open and not hasOpen(o.tfi * 2 + 1)
+                o.used := true
+                openTrade(false, o.tfi, close, o.top + atr * slAtr)
 
 // ─── Nouveaux OB ────────────────────────────────────────────────────────────
 array.fill(newFlags, false)
@@ -182,6 +411,34 @@ if barstate.islast
         warn := label.new(bar_index, high, "OB MTF : ce symbole ne fournit pas de volume,\naucun Order Block ne peut être détecté.",
              color = color.new(color.red, 0), textcolor = color.white, style = label.style_label_down, size = size.small)
 
+// ─── Tableau des taux de réussite (par UT et par sens) ─────────────────────
+var table stats = table.new(position.top_right, 3, 9, bgcolor = color.new(color.white, 10), border_color = color.new(#787b86, 60), border_width = 1)
+statCell(int col, int row, int g) =>
+    n  = grpCount(g)
+    wr = winRate(g)
+    ok = n >= minTrades and wr >= minWR
+    txt = n == 0 ? "—" : str.tostring(wr, "#") + "% (" + str.tostring(n) + ")"
+    table.cell(stats, col, row, txt, text_color = ok ? color.white : #434651, text_size = size.small,
+         bgcolor = ok ? color.new(#089981, 0) : color.new(color.white, 100))
+
+if barstate.islast and showStats
+    table.cell(stats, 0, 0, "UT", text_size = size.small, text_color = #434651)
+    table.cell(stats, 1, 0, "Long", text_size = size.small, text_color = #089981)
+    table.cell(stats, 2, 0, "Short", text_size = size.small, text_color = #f23645)
+    allowedTf = array.from(tfAllowed(on1, tf1), tfAllowed(on2, tf2), tfAllowed(on3, tf3), tfAllowed(on4, tf4),
+         tfAllowed(on5, tf5), tfAllowed(on6, tf6), tfAllowed(on7, tf7), tfAllowed(on8, tf8))
+    for i = 0 to 7
+        if array.get(allowedTf, i)
+            table.cell(stats, 0, i + 1, array.get(tfLbls, i), text_size = size.small, text_color = #434651)
+            statCell(1, i + 1, i * 2)
+            statCell(2, i + 1, i * 2 + 1)
+        else
+            table.cell(stats, 0, i + 1, "")
+            table.cell(stats, 1, i + 1, "")
+            table.cell(stats, 2, i + 1, "")
+
 // ─── Alertes (optionnel) ────────────────────────────────────────────────────
+alertcondition(array.get(posFlags, 0), "Position LONG", "Nouvelle position LONG (taux de réussite validé)")
+alertcondition(array.get(posFlags, 1), "Position SHORT", "Nouvelle position SHORT (taux de réussite validé)")
 alertcondition(array.get(newFlags, 0), "Nouvel OB haussier", "Un nouvel Order Block haussier est apparu")
 alertcondition(array.get(newFlags, 1), "Nouvel OB baissier", "Un nouvel Order Block baissier est apparu")
