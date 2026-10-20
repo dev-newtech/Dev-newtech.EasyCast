@@ -4,8 +4,8 @@
 //  - H-Today / L-Today : plus haut / plus bas de la journée en cours (orange)
 //  - M-Today           : milieu de la journée en cours (jaune)
 //  - Start-Today       : ligne verticale au début de la journée en cours (noir)
+//  - Day Open          : prix d'ouverture de la journée en cours (violet)
 //  - HPD / LPD         : plus haut / plus bas de la journée précédente (rouge)
-//  - MPD               : milieu entre HPD et LPD (violet)
 //  - H-Asia / L-Asia   : plus haut / plus bas de la session Asie (gris)
 //  - H-NY / L-NY       : plus haut / plus bas de la session New York (vert)
 //  Chaque ligne porte son étiquette et se met à jour automatiquement.
@@ -36,8 +36,8 @@ showST    = input.bool(true, "Afficher Start-Today", group = grpD)
 colST     = input.color(color.black, "Couleur Start-Today", group = grpD)
 showPD    = input.bool(true, "Afficher HPD / LPD", group = grpD)
 colPD     = input.color(color.red, "Couleur HPD / LPD", group = grpD)
-showMPD   = input.bool(true, "Afficher MPD", group = grpD)
-colMPD    = input.color(color.purple, "Couleur MPD", group = grpD)
+showDO    = input.bool(true, "Afficher Day Open", group = grpD)
+colDO     = input.color(color.purple, "Couleur Day Open", group = grpD)
 
 // ─── Session Asie ───────────────────────────────────────────────────────────
 grpA      = "Session Asie"
@@ -91,8 +91,10 @@ newDay = timeframe.change("D")
 var int   dayStart = na
 var float tH       = na
 var float tL       = na
+var float dOpen    = na
 if newDay or na(tH)
     dayStart := bar_index
+    dOpen    := open
     tH       := high
     tL       := low
 else
@@ -102,7 +104,6 @@ mToday = (tH + tL) / 2
 
 // ─── Journée précédente (bougie journalière confirmée, sans repaint) ───────
 [pdH, pdL] = request.security(syminfo.tickerid, "D", [high[1], low[1]], lookahead = barmerge.lookahead_on)
-mpd        = (pdH + pdL) / 2
 
 // ─── Session Asie ───────────────────────────────────────────────────────────
 inAsia = not na(time(timeframe.period, asiaSess, tz))
@@ -140,7 +141,7 @@ var line  lnTL  = newLine(colToday)
 var line  lnMT  = newLine(colMT)
 var line  lnPDH = newLine(colPD)
 var line  lnPDL = newLine(colPD)
-var line  lnMPD = newLine(colMPD)
+var line  lnDO  = newLine(colDO)
 var line  lnAH  = newLine(colAsia)
 var line  lnAL  = newLine(colAsia)
 var line  lnNH  = newLine(colNY)
@@ -151,7 +152,7 @@ var label lbTL  = newLabel(colToday)
 var label lbMT  = newLabel(colMT)
 var label lbPDH = newLabel(colPD)
 var label lbPDL = newLabel(colPD)
-var label lbMPD = newLabel(colMPD)
+var label lbDO  = newLabel(colDO)
 var label lbAH  = newLabel(colAsia)
 var label lbAL  = newLabel(colAsia)
 var label lbNH  = newLabel(colNY)
@@ -171,17 +172,17 @@ if barstate.islast
     setLevel(lnMT,  lbMT,  dayStart, mToday, "M-Today", showMT, colMT)
     setLevel(lnPDH, lbPDH, dayStart, pdH, "HPD",     showPD, colPD)
     setLevel(lnPDL, lbPDL, dayStart, pdL, "LPD",     showPD, colPD)
-    setLevel(lnMPD, lbMPD, dayStart, mpd, "MPD",     showMPD, colMPD)
+    setLevel(lnDO,  lbDO,  dayStart, dOpen, "Day Open", showDO, colDO)
     setLevel(lnAH,  lbAH,  nz(asiaStart, dayStart), asiaH, "H-Asia", showAsia, colAsia)
     setLevel(lnAL,  lbAL,  nz(asiaStart, dayStart), asiaL, "L-Asia", showAsia, colAsia)
     setLevel(lnNH,  lbNH,  nz(nyStart, dayStart),   nH,    "H-NY",   showNY, colNY)
     setLevel(lnNL,  lbNL,  nz(nyStart, dayStart),   nL,    "L-NY",   showNY, colNY)
 
     // Étiquettes proches : placées l'une devant l'autre (colonnes) au lieu de se superposer
-    lvLines  = array.from(lnTH, lnTL, lnMT, lnPDH, lnPDL, lnMPD, lnAH, lnAL, lnNH, lnNL)
-    lvLabels = array.from(lbTH, lbTL, lbMT, lbPDH, lbPDL, lbMPD, lbAH, lbAL, lbNH, lbNL)
-    lvPrices = array.from(nz(tH, NOVAL), nz(tL, NOVAL), nz(mToday, NOVAL), nz(pdH, NOVAL), nz(pdL, NOVAL), nz(mpd, NOVAL), nz(asiaH, NOVAL), nz(asiaL, NOVAL), nz(nH, NOVAL), nz(nL, NOVAL))
-    lvShow   = array.from(showToday, showToday, showMT, showPD, showPD, showMPD, showAsia, showAsia, showNY, showNY)
+    lvLines  = array.from(lnTH, lnTL, lnMT, lnPDH, lnPDL, lnDO, lnAH, lnAL, lnNH, lnNL)
+    lvLabels = array.from(lbTH, lbTL, lbMT, lbPDH, lbPDL, lbDO, lbAH, lbAL, lbNH, lbNL)
+    lvPrices = array.from(nz(tH, NOVAL), nz(tL, NOVAL), nz(mToday, NOVAL), nz(pdH, NOVAL), nz(pdL, NOVAL), nz(dOpen, NOVAL), nz(asiaH, NOVAL), nz(asiaL, NOVAL), nz(nH, NOVAL), nz(nL, NOVAL))
+    lvShow   = array.from(showToday, showToday, showMT, showPD, showPD, showDO, showAsia, showAsia, showNY, showNY)
     placedY  = array.new_float()
     placedC  = array.new_int()
     idx      = array.sort_indices(lvPrices, order.descending)
@@ -225,7 +226,7 @@ plot(tL,    "L-Today", colToday, display = display.data_window)
 plot(mToday, "M-Today", colMT,   display = display.data_window)
 plot(pdH,   "HPD",     colPD,    display = display.data_window)
 plot(pdL,   "LPD",     colPD,    display = display.data_window)
-plot(mpd,   "MPD",     colMPD,   display = display.data_window)
+plot(dOpen, "Day Open", colDO,  display = display.data_window)
 plot(asiaH, "H-Asia",  colAsia,  display = display.data_window)
 plot(asiaL, "L-Asia",  colAsia,  display = display.data_window)
 plot(nH,    "H-NY",    colNY,    display = display.data_window)
@@ -234,6 +235,6 @@ plot(nL,    "L-NY",    colNY,    display = display.data_window)
 // ─── Alertes (optionnel) ────────────────────────────────────────────────────
 alertcondition(ta.cross(close, pdH),  "Croisement HPD",    "Le prix croise HPD")
 alertcondition(ta.cross(close, pdL),  "Croisement LPD",    "Le prix croise LPD")
-alertcondition(ta.cross(close, mpd),  "Croisement MPD",    "Le prix croise MPD")
+alertcondition(ta.cross(close, dOpen), "Croisement Day Open", "Le prix croise Day Open")
 alertcondition(ta.cross(close, asiaH), "Croisement H-Asia", "Le prix croise H-Asia")
 alertcondition(ta.cross(close, asiaL), "Croisement L-Asia", "Le prix croise L-Asia")
