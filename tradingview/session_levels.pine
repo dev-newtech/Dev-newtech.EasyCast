@@ -4,8 +4,10 @@
 //  - H-Today / L-Today : plus haut / plus bas de la journée en cours (orange)
 //  - M-Today           : milieu de la journée en cours (jaune)
 //  - Start-Today       : ligne verticale au début de la journée en cours (noir)
-//  - Day Open          : prix d'ouverture de la journée en cours (violet)
+//  - Open Today          : prix d'ouverture de la journée en cours (violet)
 //  - HPD / LPD         : plus haut / plus bas de la journée précédente (rouge)
+//  - M-PD              : milieu de la journée précédente (bleu ciel)
+//  - Start-Week / End-Week : lignes verticales début / fin de la semaine (bleu)
 //  - H-Asia / L-Asia   : plus haut / plus bas de la session Asie (gris)
 //  - H-NY / L-NY       : plus haut / plus bas de la session New York (vert)
 //  Chaque ligne porte son étiquette et se met à jour automatiquement.
@@ -36,8 +38,15 @@ showST    = input.bool(true, "Afficher Start-Today", group = grpD)
 colST     = input.color(color.black, "Couleur Start-Today", group = grpD)
 showPD    = input.bool(true, "Afficher HPD / LPD", group = grpD)
 colPD     = input.color(color.red, "Couleur HPD / LPD", group = grpD)
-showDO    = input.bool(true, "Afficher Day Open", group = grpD)
-colDO     = input.color(color.purple, "Couleur Day Open", group = grpD)
+showDO    = input.bool(true, "Afficher Open Today", group = grpD)
+colDO     = input.color(color.purple, "Couleur Open Today", group = grpD)
+showMPD   = input.bool(true, "Afficher M-PD", group = grpD)
+colMPD    = input.color(color.aqua, "Couleur M-PD", group = grpD)
+
+// ─── Semaine ────────────────────────────────────────────────────────────────
+grpW      = "Semaine"
+showWk    = input.bool(true, "Afficher Start-Week / End-Week", group = grpW)
+colWk     = input.color(color.blue, "Couleur Start-Week / End-Week", group = grpW)
 
 // ─── Session Asie ───────────────────────────────────────────────────────────
 grpA      = "Session Asie"
@@ -104,6 +113,13 @@ mToday = (tH + tL) / 2
 
 // ─── Journée précédente (bougie journalière confirmée, sans repaint) ───────
 [pdH, pdL] = request.security(syminfo.tickerid, "D", [high[1], low[1]], lookahead = barmerge.lookahead_on)
+mpd        = (pdH + pdL) / 2
+
+// ─── Semaine en cours (début = première bougie de la semaine, fin = clôture hebdomadaire)
+var int weekStartT = na
+if timeframe.change("W") or na(weekStartT)
+    weekStartT := time
+weekEndT = time_close("W")
 
 // ─── Session Asie ───────────────────────────────────────────────────────────
 inAsia = not na(time(timeframe.period, asiaSess, tz))
@@ -142,6 +158,7 @@ var line  lnMT  = newLine(colMT)
 var line  lnPDH = newLine(colPD)
 var line  lnPDL = newLine(colPD)
 var line  lnDO  = newLine(colDO)
+var line  lnMPD = newLine(colMPD)
 var line  lnAH  = newLine(colAsia)
 var line  lnAL  = newLine(colAsia)
 var line  lnNH  = newLine(colNY)
@@ -153,6 +170,7 @@ var label lbMT  = newLabel(colMT)
 var label lbPDH = newLabel(colPD)
 var label lbPDL = newLabel(colPD)
 var label lbDO  = newLabel(colDO)
+var label lbMPD = newLabel(colMPD)
 var label lbAH  = newLabel(colAsia)
 var label lbAL  = newLabel(colAsia)
 var label lbNH  = newLabel(colNY)
@@ -161,6 +179,12 @@ var label lbNL  = newLabel(colNY)
 // Start-Today : ligne verticale sur la première bougie de la journée
 var line  lnST  = line.new(bar_index, close, bar_index, close * 1.0001, xloc = xloc.bar_index, extend = extend.both, color = colST, width = lineWidth, style = lnStyle)
 var label lbST  = newLabel(colST)
+
+// Start-Week / End-Week : lignes verticales positionnées par l'heure (la fin de semaine est dans le futur)
+var line  lnWS  = line.new(time, close, time, close * 1.0001, xloc = xloc.bar_time, extend = extend.both, color = colWk, width = lineWidth, style = lnStyle)
+var line  lnWE  = line.new(time, close, time, close * 1.0001, xloc = xloc.bar_time, extend = extend.both, color = colWk, width = lineWidth, style = lnStyle)
+var label lbWS  = label.new(time, close, "", xloc = xloc.bar_time, color = lblFill ? colWk : color.new(colWk, 100), textcolor = txtColor(colWk), style = label.style_label_lower_left, size = lblSize)
+var label lbWE  = label.new(time, close, "", xloc = xloc.bar_time, color = lblFill ? colWk : color.new(colWk, 100), textcolor = txtColor(colWk), style = label.style_label_lower_right, size = lblSize)
 
 lblGap = ta.atr(14) * lblGapAtr
 NOVAL  = -1.0e20   // remplace les valeurs absentes pour le tri
@@ -172,17 +196,18 @@ if barstate.islast
     setLevel(lnMT,  lbMT,  dayStart, mToday, "M-Today", showMT, colMT)
     setLevel(lnPDH, lbPDH, dayStart, pdH, "HPD",     showPD, colPD)
     setLevel(lnPDL, lbPDL, dayStart, pdL, "LPD",     showPD, colPD)
-    setLevel(lnDO,  lbDO,  dayStart, dOpen, "Day Open", showDO, colDO)
+    setLevel(lnDO,  lbDO,  dayStart, dOpen, "Open Today", showDO, colDO)
+    setLevel(lnMPD, lbMPD, dayStart, mpd, "M-PD",    showMPD, colMPD)
     setLevel(lnAH,  lbAH,  nz(asiaStart, dayStart), asiaH, "H-Asia", showAsia, colAsia)
     setLevel(lnAL,  lbAL,  nz(asiaStart, dayStart), asiaL, "L-Asia", showAsia, colAsia)
     setLevel(lnNH,  lbNH,  nz(nyStart, dayStart),   nH,    "H-NY",   showNY, colNY)
     setLevel(lnNL,  lbNL,  nz(nyStart, dayStart),   nL,    "L-NY",   showNY, colNY)
 
     // Étiquettes proches : placées l'une devant l'autre (colonnes) au lieu de se superposer
-    lvLines  = array.from(lnTH, lnTL, lnMT, lnPDH, lnPDL, lnDO, lnAH, lnAL, lnNH, lnNL)
-    lvLabels = array.from(lbTH, lbTL, lbMT, lbPDH, lbPDL, lbDO, lbAH, lbAL, lbNH, lbNL)
-    lvPrices = array.from(nz(tH, NOVAL), nz(tL, NOVAL), nz(mToday, NOVAL), nz(pdH, NOVAL), nz(pdL, NOVAL), nz(dOpen, NOVAL), nz(asiaH, NOVAL), nz(asiaL, NOVAL), nz(nH, NOVAL), nz(nL, NOVAL))
-    lvShow   = array.from(showToday, showToday, showMT, showPD, showPD, showDO, showAsia, showAsia, showNY, showNY)
+    lvLines  = array.from(lnTH, lnTL, lnMT, lnPDH, lnPDL, lnDO, lnMPD, lnAH, lnAL, lnNH, lnNL)
+    lvLabels = array.from(lbTH, lbTL, lbMT, lbPDH, lbPDL, lbDO, lbMPD, lbAH, lbAL, lbNH, lbNL)
+    lvPrices = array.from(nz(tH, NOVAL), nz(tL, NOVAL), nz(mToday, NOVAL), nz(pdH, NOVAL), nz(pdL, NOVAL), nz(dOpen, NOVAL), nz(mpd, NOVAL), nz(asiaH, NOVAL), nz(asiaL, NOVAL), nz(nH, NOVAL), nz(nL, NOVAL))
+    lvShow   = array.from(showToday, showToday, showMT, showPD, showPD, showDO, showMPD, showAsia, showAsia, showNY, showNY)
     placedY  = array.new_float()
     placedC  = array.new_int()
     idx      = array.sort_indices(lvPrices, order.descending)
@@ -220,13 +245,40 @@ if barstate.islast
         label.set_text(lbST, "")
         label.set_color(lbST, color.new(colST, 100))
 
+    if showWk and not na(weekStartT)
+        line.set_color(lnWS, colWk)
+        line.set_xy1(lnWS, weekStartT, tL)
+        line.set_xy2(lnWS, weekStartT, tH)
+        label.set_xy(lbWS, weekStartT, tH)
+        label.set_text(lbWS, "Start-Week")
+        label.set_color(lbWS, lblFill ? colWk : color.new(colWk, 100))
+        label.set_textcolor(lbWS, txtColor(colWk))
+    else
+        line.set_color(lnWS, color.new(color.black, 100))
+        label.set_text(lbWS, "")
+        label.set_color(lbWS, color.new(colWk, 100))
+
+    if showWk and not na(weekEndT)
+        line.set_color(lnWE, colWk)
+        line.set_xy1(lnWE, weekEndT, tL)
+        line.set_xy2(lnWE, weekEndT, tH)
+        label.set_xy(lbWE, weekEndT, tH)
+        label.set_text(lbWE, "End-Week")
+        label.set_color(lbWE, lblFill ? colWk : color.new(colWk, 100))
+        label.set_textcolor(lbWE, txtColor(colWk))
+    else
+        line.set_color(lnWE, color.new(color.black, 100))
+        label.set_text(lbWE, "")
+        label.set_color(lbWE, color.new(colWk, 100))
+
 // ─── Valeurs visibles dans la fenêtre de données (pas de tracé sur le graphique)
 plot(tH,    "H-Today", colToday, display = display.data_window)
 plot(tL,    "L-Today", colToday, display = display.data_window)
 plot(mToday, "M-Today", colMT,   display = display.data_window)
 plot(pdH,   "HPD",     colPD,    display = display.data_window)
 plot(pdL,   "LPD",     colPD,    display = display.data_window)
-plot(dOpen, "Day Open", colDO,  display = display.data_window)
+plot(dOpen, "Open Today", colDO,  display = display.data_window)
+plot(mpd,   "M-PD",    colMPD,   display = display.data_window)
 plot(asiaH, "H-Asia",  colAsia,  display = display.data_window)
 plot(asiaL, "L-Asia",  colAsia,  display = display.data_window)
 plot(nH,    "H-NY",    colNY,    display = display.data_window)
@@ -235,6 +287,6 @@ plot(nL,    "L-NY",    colNY,    display = display.data_window)
 // ─── Alertes (optionnel) ────────────────────────────────────────────────────
 alertcondition(ta.cross(close, pdH),  "Croisement HPD",    "Le prix croise HPD")
 alertcondition(ta.cross(close, pdL),  "Croisement LPD",    "Le prix croise LPD")
-alertcondition(ta.cross(close, dOpen), "Croisement Day Open", "Le prix croise Day Open")
+alertcondition(ta.cross(close, dOpen), "Croisement Open Today", "Le prix croise Open Today")
 alertcondition(ta.cross(close, asiaH), "Croisement H-Asia", "Le prix croise H-Asia")
 alertcondition(ta.cross(close, asiaL), "Croisement L-Asia", "Le prix croise L-Asia")
