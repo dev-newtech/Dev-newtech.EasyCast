@@ -7,7 +7,7 @@
 //  - Open Today          : prix d'ouverture de la journée en cours (violet)
 //  - HPD / LPD         : plus haut / plus bas de la journée précédente (rouge)
 //  - M-PD              : milieu de la journée précédente (bleu ciel)
-//  - Start-Week / End-Week : lignes verticales début / fin de la semaine (bleu)
+//  - Start-Week        : ligne verticale au début de la semaine (bleu)
 //  - H-Asia / L-Asia   : plus haut / plus bas de la session Asie (gris)
 //  - H-NY / L-NY       : plus haut / plus bas de la session New York (vert)
 //  Chaque ligne porte son étiquette et se met à jour automatiquement.
@@ -45,8 +45,8 @@ colMPD    = input.color(color.aqua, "Couleur M-PD", group = grpD)
 
 // ─── Semaine ────────────────────────────────────────────────────────────────
 grpW      = "Semaine"
-showWk    = input.bool(true, "Afficher Start-Week / End-Week", group = grpW)
-colWk     = input.color(color.blue, "Couleur Start-Week / End-Week", group = grpW)
+showWk    = input.bool(true, "Afficher Start-Week", group = grpW)
+colWk     = input.color(color.blue, "Couleur Start-Week", group = grpW)
 
 // ─── Session Asie ───────────────────────────────────────────────────────────
 grpA      = "Session Asie"
@@ -115,11 +115,10 @@ mToday = (tH + tL) / 2
 [pdH, pdL] = request.security(syminfo.tickerid, "D", [high[1], low[1]], lookahead = barmerge.lookahead_on)
 mpd        = (pdH + pdL) / 2
 
-// ─── Semaine en cours (début = première bougie de la semaine, fin = clôture hebdomadaire)
+// ─── Semaine en cours (début = première bougie de la semaine)
 var int weekStartT = na
 if timeframe.change("W") or na(weekStartT)
     weekStartT := time
-weekEndT = time_close("W")
 
 // ─── Session Asie ───────────────────────────────────────────────────────────
 inAsia = not na(time(timeframe.period, asiaSess, tz))
@@ -180,11 +179,9 @@ var label lbNL  = newLabel(colNY)
 var line  lnST  = line.new(bar_index, close, bar_index, close * 1.0001, xloc = xloc.bar_index, extend = extend.both, color = colST, width = lineWidth, style = lnStyle)
 var label lbST  = newLabel(colST)
 
-// Start-Week / End-Week : lignes verticales positionnées par l'heure (la fin de semaine est dans le futur)
+// Start-Week : ligne verticale positionnée par l'heure
 var line  lnWS  = line.new(time, close, time, close * 1.0001, xloc = xloc.bar_time, extend = extend.both, color = colWk, width = lineWidth, style = lnStyle)
-var line  lnWE  = line.new(time, close, time, close * 1.0001, xloc = xloc.bar_time, extend = extend.both, color = colWk, width = lineWidth, style = lnStyle)
 var label lbWS  = label.new(time, close, "", xloc = xloc.bar_time, color = lblFill ? colWk : color.new(colWk, 100), textcolor = txtColor(colWk), style = label.style_label_lower_left, size = lblSize)
-var label lbWE  = label.new(time, close, "", xloc = xloc.bar_time, color = lblFill ? colWk : color.new(colWk, 100), textcolor = txtColor(colWk), style = label.style_label_lower_right, size = lblSize)
 
 lblGap = ta.atr(14) * lblGapAtr
 NOVAL  = -1.0e20   // remplace les valeurs absentes pour le tri
@@ -257,19 +254,6 @@ if barstate.islast
         line.set_color(lnWS, color.new(color.black, 100))
         label.set_text(lbWS, "")
         label.set_color(lbWS, color.new(colWk, 100))
-
-    if showWk and not na(weekEndT)
-        line.set_color(lnWE, colWk)
-        line.set_xy1(lnWE, weekEndT, tL)
-        line.set_xy2(lnWE, weekEndT, tH)
-        label.set_xy(lbWE, weekEndT, tH)
-        label.set_text(lbWE, "End-Week")
-        label.set_color(lbWE, lblFill ? colWk : color.new(colWk, 100))
-        label.set_textcolor(lbWE, txtColor(colWk))
-    else
-        line.set_color(lnWE, color.new(color.black, 100))
-        label.set_text(lbWE, "")
-        label.set_color(lbWE, color.new(colWk, 100))
 
 // ─── Valeurs visibles dans la fenêtre de données (pas de tracé sur le graphique)
 plot(tH,    "H-Today", colToday, display = display.data_window)
