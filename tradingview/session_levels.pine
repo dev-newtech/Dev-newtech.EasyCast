@@ -4,6 +4,8 @@
 //  - H-Today / L-Today : plus haut / plus bas de la journée en cours (orange)
 //  - M-Today           : milieu de la journée en cours (jaune)
 //  - Start-Today       : ligne verticale au début de la journée en cours (noir)
+//  - Start-China / Start-EUR / Start-USA : lignes verticales à l'ouverture des sessions
+//                        chinoise (fuchsia), européenne (bleu) et américaine (sarcelle)
 //  - Open Today          : prix d'ouverture de la journée en cours (violet)
 //  - HPD / LPD         : plus haut / plus bas de la journée précédente (rouge)
 //  - M-PD              : milieu de la journée précédente (bleu ciel)
@@ -41,6 +43,18 @@ showDO    = input.bool(true, "Afficher Open Today", group = grpD)
 colDO     = input.color(color.purple, "Couleur Open Today", group = grpD)
 showMPD   = input.bool(true, "Afficher M-PD", group = grpD)
 colMPD    = input.color(color.aqua, "Couleur M-PD", group = grpD)
+
+// ─── Ouvertures de sessions (lignes verticales) ─────────────────────────────
+grpO      = "Ouvertures de sessions"
+showCN    = input.bool(true, "Afficher Start-China", group = grpO)
+colCN     = input.color(color.fuchsia, "Couleur Start-China", group = grpO)
+cnSess    = input.session("0930-1500", "Session Chine (heure de Shanghai)", group = grpO)
+showEU    = input.bool(true, "Afficher Start-EUR", group = grpO)
+colEU     = input.color(color.blue, "Couleur Start-EUR", group = grpO)
+euSess    = input.session("0800-1630", "Session Europe (heure de Londres)", group = grpO)
+showUS    = input.bool(true, "Afficher Start-USA", group = grpO)
+colUS     = input.color(color.teal, "Couleur Start-USA", group = grpO)
+usSess    = input.session("0930-1600", "Session USA (heure de New York)", group = grpO)
 
 // ─── Session Asie ───────────────────────────────────────────────────────────
 grpA      = "Session Asie"
@@ -139,6 +153,36 @@ else if inNY
     nH := math.max(nH, high)
     nL := math.min(nL, low)
 
+// ─── Ouvertures des sessions Chine / Europe / USA (dernière ouverture) ──────
+inCN = not na(time(timeframe.period, cnSess, "Asia/Shanghai"))
+inEU = not na(time(timeframe.period, euSess, "Europe/London"))
+inUS = not na(time(timeframe.period, usSess, "America/New_York"))
+var int cnStart = na
+var int euStart = na
+var int usStart = na
+if inCN and not inCN[1]
+    cnStart := bar_index
+if inEU and not inEU[1]
+    euStart := bar_index
+if inUS and not inUS[1]
+    usStart := bar_index
+
+// Ligne verticale + étiquette en haut (même présentation que Start-Today)
+setVLine(line ln, label lb, int x, string txt, bool show, color c) =>
+    if show and not na(x)
+        line.set_color(ln, c)
+        line.set_xy1(ln, x, tL)
+        line.set_xy2(ln, x, tH)
+        label.set_xy(lb, x, tH)
+        label.set_style(lb, label.style_label_lower_left)
+        label.set_textcolor(lb, txtColor(c))
+        label.set_color(lb, lblFill ? c : color.new(c, 100))
+        label.set_text(lb, txt)
+    else
+        line.set_color(ln, color.new(color.black, 100))
+        label.set_text(lb, "")
+        label.set_color(lb, color.new(c, 100))
+
 // ─── Objets graphiques (créés une seule fois) ──────────────────────────────
 var line  lnTH  = newLine(colToday)
 var line  lnTL  = newLine(colToday)
@@ -167,6 +211,14 @@ var label lbNL  = newLabel(colNY)
 // Start-Today : ligne verticale sur la première bougie de la journée
 var line  lnST  = line.new(bar_index, close, bar_index, close * 1.0001, xloc = xloc.bar_index, extend = extend.both, color = colST, width = lineWidth, style = lnStyle)
 var label lbST  = newLabel(colST)
+
+// Start-China / Start-EUR / Start-USA : lignes verticales à l'ouverture des sessions
+var line  lnCN  = line.new(bar_index, close, bar_index, close * 1.0001, xloc = xloc.bar_index, extend = extend.both, color = colCN, width = lineWidth, style = lnStyle)
+var line  lnEU  = line.new(bar_index, close, bar_index, close * 1.0001, xloc = xloc.bar_index, extend = extend.both, color = colEU, width = lineWidth, style = lnStyle)
+var line  lnUS  = line.new(bar_index, close, bar_index, close * 1.0001, xloc = xloc.bar_index, extend = extend.both, color = colUS, width = lineWidth, style = lnStyle)
+var label lbCN  = newLabel(colCN)
+var label lbEU  = newLabel(colEU)
+var label lbUS  = newLabel(colUS)
 
 lblGap = ta.atr(14) * lblGapAtr
 NOVAL  = -1.0e20   // remplace les valeurs absentes pour le tri
@@ -226,6 +278,10 @@ if barstate.islast
         line.set_color(lnST, color.new(color.black, 100))
         label.set_text(lbST, "")
         label.set_color(lbST, color.new(colST, 100))
+
+    setVLine(lnCN, lbCN, cnStart, "Start-China", showCN, colCN)
+    setVLine(lnEU, lbEU, euStart, "Start-EUR",   showEU, colEU)
+    setVLine(lnUS, lbUS, usStart, "Start-USA",   showUS, colUS)
 
 // ─── Valeurs visibles dans la fenêtre de données (pas de tracé sur le graphique)
 plot(tH,    "H-Today", colToday, display = display.data_window)
