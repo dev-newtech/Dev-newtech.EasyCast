@@ -19,8 +19,6 @@ grpG       = "Général"
 extendBars = input.int(20, "Prolongement à droite (barres)", minval = 1, group = grpG)
 lblOffset  = input.int(3, "Position de l'étiquette (barres après la dernière bougie)", minval = 0, group = grpG)
 lblFill    = input.bool(true, "Étiquette avec fond coloré", group = grpG)
-hoverOnly  = input.bool(true, "Étiquettes au survol seulement (point + infobulle)", group = grpG,
-     tooltip = "Activé : chaque ligne porte un petit point ; passez la souris dessus pour voir le nom et le prix.\nDésactivé : étiquettes complètes toujours visibles.")
 lblGapAtr  = input.float(1.0, "Écart min. entre étiquettes (× ATR) avant décalage", minval = 0, step = 0.1, group = grpG,
      tooltip = "Si deux niveaux sont plus proches que cet écart, leurs étiquettes sont placées l'une devant l'autre au lieu de se superposer.")
 lblShift   = input.int(14, "Décalage horizontal entre étiquettes proches (barres)", minval = 1, group = grpG)
@@ -78,21 +76,6 @@ txtColor(color c) =>
     lum = 0.299 * color.r(c) + 0.587 * color.g(c) + 0.114 * color.b(c)
     lblFill ? (lum > 160 ? color.black : color.white) : c
 
-// Affiche l'étiquette : texte complet, ou petit point avec infobulle (mode survol)
-showLabel(label lb, string txt, color c, string normalStyle) =>
-    label.set_tooltip(lb, txt)
-    if hoverOnly
-        label.set_style(lb, label.style_circle)
-        label.set_size(lb, size.tiny)
-        label.set_color(lb, c)
-        label.set_text(lb, "")
-    else
-        label.set_style(lb, normalStyle)
-        label.set_size(lb, lblSize)
-        label.set_color(lb, lblFill ? c : color.new(c, 100))
-        label.set_textcolor(lb, txtColor(c))
-        label.set_text(lb, txt)
-
 newLabel(color c) =>
     label.new(bar_index, close, "", xloc = xloc.bar_index, color = lblFill ? c : color.new(c, 100), textcolor = txtColor(c), style = label.style_label_left, size = lblSize)
 
@@ -104,11 +87,12 @@ setLevel(line ln, label lb, int x1, float y, string txt, bool show, color c) =>
         line.set_xy1(ln, x1, y)
         line.set_xy2(ln, x2, y)
         label.set_xy(lb, bar_index + lblOffset, y)
-        showLabel(lb, showPrice ? str.tostring(y, format.mintick) + "  " + txt : txt, c, label.style_label_left)
+        label.set_color(lb, lblFill ? c : color.new(c, 100))
+        label.set_textcolor(lb, txtColor(c))
+        label.set_text(lb, showPrice ? str.tostring(y, format.mintick) + "  " + txt : txt)
     else
         line.set_color(ln, color.new(color.black, 100))
         label.set_text(lb, "")
-        label.set_tooltip(lb, "")
         label.set_color(lb, color.new(c, 100))
 
 // ─── Journée en cours (calcul barre par barre, mise à jour en temps réel) ──
@@ -249,11 +233,13 @@ if barstate.islast
         line.set_xy1(lnST, dayStart, tL)
         line.set_xy2(lnST, dayStart, tH)
         label.set_xy(lbST, dayStart, tH)
-        showLabel(lbST, "Start-Today", colST, label.style_label_lower_left)
+        label.set_style(lbST, label.style_label_lower_left)
+        label.set_textcolor(lbST, txtColor(colST))
+        label.set_color(lbST, lblFill ? colST : color.new(colST, 100))
+        label.set_text(lbST, "Start-Today")
     else
         line.set_color(lnST, color.new(color.black, 100))
         label.set_text(lbST, "")
-        label.set_tooltip(lbST, "")
         label.set_color(lbST, color.new(colST, 100))
 
     if showWk and not na(weekStartT)
@@ -261,11 +247,12 @@ if barstate.islast
         line.set_xy1(lnWS, weekStartT, tL)
         line.set_xy2(lnWS, weekStartT, tH)
         label.set_xy(lbWS, weekStartT, tH)
-        showLabel(lbWS, "Start-Week", colWk, label.style_label_lower_left)
+        label.set_text(lbWS, "Start-Week")
+        label.set_color(lbWS, lblFill ? colWk : color.new(colWk, 100))
+        label.set_textcolor(lbWS, txtColor(colWk))
     else
         line.set_color(lnWS, color.new(color.black, 100))
         label.set_text(lbWS, "")
-        label.set_tooltip(lbWS, "")
         label.set_color(lbWS, color.new(colWk, 100))
 
 // ─── Valeurs visibles dans la fenêtre de données (pas de tracé sur le graphique)
