@@ -73,8 +73,8 @@ showAsia  = input.bool(true, "Afficher H-Asia / L-Asia", group = grpA)
 colAsia   = input.color(color.gray, "Couleur H-Asia / L-Asia", group = grpA)
 asiaMode  = input.string("Calcul interne", "Source des valeurs", options = ["Calcul interne", "Indicateur AsianRange (Nico948)"], group = grpA,
      tooltip = "« Calcul interne » : le script calcule le range sur la plage horaire ci-dessous (réglez-la comme dans AsianRange de Nico948).\n« Indicateur AsianRange » : ajoutez AsianRange sur le même graphique puis choisissez ses sorties High/Low dans les deux champs ci-dessous.")
-asiaSess  = input.session("1800-2345", "Plage horaire Asie (heure de New York, comme AsianRange de Nico948)", group = grpA,
-     tooltip = "18h00-23h45 heure de New York = 00h00-05h45 heure de Paris.")
+asiaSess  = input.session("0000-0545", "Plage horaire Asie (heure de Paris, comme AsianRange de Nico948)", group = grpA,
+     tooltip = "00h00-05h45 heure de Paris (= 18h00-23h45 heure de New York la plupart de l'année).\nCalculée en heure de Paris pour rester juste pendant les semaines où la France et les USA ne changent pas d'heure le même jour.")
 asiaHSrc  = input.source(high, "H-Asia ← sortie High de AsianRange", group = grpA)
 asiaLSrc  = input.source(low, "L-Asia ← sortie Low de AsianRange", group = grpA)
 
@@ -139,7 +139,7 @@ mpd        = (pdH + pdL) / 2
 [wOpen, pwOpen, pwClose] = request.security(syminfo.tickerid, "W", [open, open[1], close[1]], lookahead = barmerge.lookahead_on)
 
 // ─── Session Asie ───────────────────────────────────────────────────────────
-inAsia = not na(time(timeframe.period, asiaSess, tz))
+inAsia = not na(time(timeframe.period, asiaSess, "Europe/Paris"))
 var int   asiaStart = na
 var float aH        = na
 var float aL        = na
