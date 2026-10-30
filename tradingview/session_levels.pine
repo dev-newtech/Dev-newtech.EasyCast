@@ -14,6 +14,7 @@
 //  - H-Asia / L-Asia   : plus haut / plus bas de la session Asie (gris)
 //  - H-NY / L-NY       : plus haut / plus bas de la session New York (vert)
 //  Chaque ligne porte son étiquette et se met à jour automatiquement.
+//  Alertes ICT / SMC : balayage (sweep) et cassure (break) de HPD, LPD, H-Asia, L-Asia.
 // ============================================================================
 indicator("Niveaux Jour / PD / Asie / NY", shorttitle = "Session Levels", overlay = true, max_lines_count = 50, max_labels_count = 50)
 
@@ -83,6 +84,11 @@ grpN   = "Session New York"
 showNY = input.bool(true, "Afficher H-NY / L-NY", group = grpN)
 colNY  = input.color(color.green, "Couleur H-NY / L-NY", group = grpN)
 nySess = input.session("0930-1600", "Plage horaire New York", group = grpN)
+
+// ─── Alertes ICT / SMC (liquidité) ──────────────────────────────────────────
+grpS      = "Alertes ICT / SMC"
+showSig   = input.bool(true, "Afficher les signaux de balayage / cassure sur le graphique", group = grpS,
+     tooltip = "Balayage (sweep) : la mèche dépasse le niveau mais la bougie clôture de l'autre côté → prise de liquidité, possible retournement.\nCassure (break) : la bougie clôture au-delà du niveau → continuation possible.")
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 lnStyle = styleIn == "Tirets" ? line.style_dashed : styleIn == "Pointillé" ? line.style_dotted : line.style_solid
@@ -197,6 +203,24 @@ setVLine(line ln, label lb, int x, string txt, bool show, color c) =>
         line.set_color(ln, color.new(color.black, 100))
         label.set_text(lb, "")
         label.set_color(lb, color.new(c, 100))
+
+// ─── Balayages / cassures de liquidité (ICT / SMC) ─────────────────────────
+// Évalués à la clôture de chaque bougie
+sweepHigh(float lvl) => not na(lvl) and high > lvl and close < lvl
+sweepLow(float lvl)  => not na(lvl) and low < lvl and close > lvl
+breakUp(float lvl)   => not na(lvl) and close > lvl and close[1] <= lvl
+breakDn(float lvl)   => not na(lvl) and close < lvl and close[1] >= lvl
+
+asiaDone = not inAsia and not na(asiaH) and not na(asiaL)   // range Asie terminé
+
+swHPD = sweepHigh(pdH)
+brHPD = breakUp(pdH)
+swLPD = sweepLow(pdL)
+brLPD = breakDn(pdL)
+swHA  = asiaDone and sweepHigh(asiaH)
+brHA  = asiaDone and breakUp(asiaH)
+swLA  = asiaDone and sweepLow(asiaL)
+brLA  = asiaDone and breakDn(asiaL)
 
 // ─── Objets graphiques (créés une seule fois) ──────────────────────────────
 var line  lnTH  = newLine(colToday)
@@ -329,3 +353,37 @@ alertcondition(ta.cross(close, pdL),  "Croisement LPD",    "Le prix croise LPD")
 alertcondition(ta.cross(close, dOpen), "Croisement Open Today", "Le prix croise Open Today")
 alertcondition(ta.cross(close, asiaH), "Croisement H-Asia", "Le prix croise H-Asia")
 alertcondition(ta.cross(close, asiaL), "Croisement L-Asia", "Le prix croise L-Asia")
+
+// ─── Signaux ICT / SMC sur le graphique ────────────────────────────────────
+plotshape(showSig and swHPD, "Balayage HPD",   shape.triangledown, location.abovebar, colPD,   text = "Sweep\nHPD",   textcolor = colPD,   size = size.tiny)
+plotshape(showSig and swHA,  "Balayage H-Asia", shape.triangledown, location.abovebar, colAsia, text = "Sweep\nH-Asia", textcolor = colAsia, size = size.tiny)
+plotshape(showSig and swLPD, "Balayage LPD",   shape.triangleup,   location.belowbar, colPD,   text = "Sweep\nLPD",   textcolor = colPD,   size = size.tiny)
+plotshape(showSig and swLA,  "Balayage L-Asia", shape.triangleup,   location.belowbar, colAsia, text = "Sweep\nL-Asia", textcolor = colAsia, size = size.tiny)
+plotshape(showSig and brHPD, "Cassure HPD",    shape.diamond, location.abovebar, colPD,   text = "BOS\nHPD",    textcolor = colPD,   size = size.tiny)
+plotshape(showSig and brHA,  "Cassure H-Asia", shape.diamond, location.abovebar, colAsia, text = "BOS\nH-Asia", textcolor = colAsia, size = size.tiny)
+plotshape(showSig and brLPD, "Cassure LPD",    shape.diamond, location.belowbar, colPD,   text = "BOS\nLPD",    textcolor = colPD,   size = size.tiny)
+plotshape(showSig and brLA,  "Cassure L-Asia", shape.diamond, location.belowbar, colAsia, text = "BOS\nL-Asia", textcolor = colAsia, size = size.tiny)
+
+// ─── Alertes ICT / SMC (à créer avec « Une fois par clôture de barre ») ────
+alertcondition(swHPD, "Balayage HPD (sweep)",    "{{ticker}} : balayage de HPD — liquidité haute prise, possible retournement baissier")
+alertcondition(swLPD, "Balayage LPD (sweep)",    "{{ticker}} : balayage de LPD — liquidité basse prise, possible retournement haussier")
+alertcondition(swHA,  "Balayage H-Asia (sweep)", "{{ticker}} : balayage de H-Asia — liquidité haute prise, possible retournement baissier")
+alertcondition(swLA,  "Balayage L-Asia (sweep)", "{{ticker}} : balayage de L-Asia — liquidité basse prise, possible retournement haussier")
+alertcondition(brHPD, "Cassure HPD (BOS)",       "{{ticker}} : clôture au-dessus de HPD — cassure haussière")
+alertcondition(brLPD, "Cassure LPD (BOS)",       "{{ticker}} : clôture sous LPD — cassure baissière")
+alertcondition(brHA,  "Cassure H-Asia (BOS)",    "{{ticker}} : clôture au-dessus de H-Asia — cassure haussière")
+alertcondition(brLA,  "Cassure L-Asia (BOS)",    "{{ticker}} : clôture sous L-Asia — cassure baissière")
+
+// Alerte unique regroupant tous les signaux (choisir « Tout appel de fonction alert() » à la création)
+if barstate.isconfirmed
+    msg = ""
+    msg += swHPD ? "Balayage HPD. " : ""
+    msg += swLPD ? "Balayage LPD. " : ""
+    msg += swHA  ? "Balayage H-Asia. " : ""
+    msg += swLA  ? "Balayage L-Asia. " : ""
+    msg += brHPD ? "Cassure HPD. " : ""
+    msg += brLPD ? "Cassure LPD. " : ""
+    msg += brHA  ? "Cassure H-Asia. " : ""
+    msg += brLA  ? "Cassure L-Asia. " : ""
+    if msg != ""
+        alert(syminfo.ticker + " : " + msg, alert.freq_once_per_bar_close)
