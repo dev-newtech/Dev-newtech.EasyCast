@@ -11,7 +11,6 @@
 //  - M-PD              : milieu de la journée précédente (bleu ciel)
 //  - Open Week         : ouverture de la semaine en cours (bleu marine)
 //  - Open Prev Week / Close Prev Week : ouverture / clôture de la semaine dernière (olive / vert citron)
-//  - F-23M / F-23W     : Fibonacci 23,6 % de la bougie du mois / de la semaine en cours (rose / marron)
 //  - H-Asia / L-Asia   : plus haut / plus bas de la session Asie (gris)
 //  - H-NY / L-NY       : plus haut / plus bas de la session New York (vert)
 //  Chaque ligne porte son étiquette et se met à jour automatiquement.
@@ -55,16 +54,6 @@ showOPW   = input.bool(true, "Afficher Open Prev Week", group = grpW)
 colOPW    = input.color(color.olive, "Couleur Open Prev Week", group = grpW)
 showCPW   = input.bool(true, "Afficher Close Prev Week", group = grpW)
 colCPW    = input.color(color.lime, "Couleur Close Prev Week", group = grpW)
-
-// ─── Fibonacci ──────────────────────────────────────────────────────────────
-grpF      = "Fibonacci"
-fibPct    = input.float(23.6, "Niveau Fibonacci (%)", minval = 0, maxval = 100, step = 0.1, group = grpF)
-fibDir    = input.string("Auto (couleur de la bougie)", "Sens du Fibonacci", options = ["Auto (couleur de la bougie)", "Depuis le haut", "Depuis le bas"], group = grpF,
-     tooltip = "Auto : bougie haussière → niveau mesuré depuis le haut (retracement de la hausse) ; bougie baissière → depuis le bas.\nDepuis le haut : haut − 23,6 % du range.\nDepuis le bas : bas + 23,6 % du range.")
-showF23M  = input.bool(true, "Afficher F-23M (bougie du mois)", group = grpF)
-colF23M   = input.color(#FF69B4, "Couleur F-23M", group = grpF)
-showF23W  = input.bool(true, "Afficher F-23W (bougie de la semaine)", group = grpF)
-colF23W   = input.color(#8B4513, "Couleur F-23W", group = grpF)
 
 // ─── Ouvertures de sessions (lignes verticales) ─────────────────────────────
 grpO      = "Ouvertures de sessions"
@@ -149,18 +138,6 @@ mpd        = (pdH + pdL) / 2
 // ─── Semaine en cours / précédente (bougies hebdomadaires) ─────────────────
 [wOpen, pwOpen, pwClose] = request.security(syminfo.tickerid, "W", [open, open[1], close[1]], lookahead = barmerge.lookahead_on)
 
-// ─── Fibonacci des bougies du mois / de la semaine en cours ────────────────
-[mO, mH, mL, mC] = request.security(syminfo.tickerid, "M", [open, high, low, close], lookahead = barmerge.lookahead_on)
-[wO, wH, wL, wC] = request.security(syminfo.tickerid, "W", [open, high, low, close], lookahead = barmerge.lookahead_on)
-
-fibLevel(float o, float h, float l, float c) =>
-    rng      = h - l
-    fromHigh = fibDir == "Depuis le haut" or (fibDir == "Auto (couleur de la bougie)" and c >= o)
-    fromHigh ? h - rng * fibPct / 100 : l + rng * fibPct / 100
-
-f23M = fibLevel(mO, mH, mL, mC)
-f23W = fibLevel(wO, wH, wL, wC)
-
 // ─── Session Asie ───────────────────────────────────────────────────────────
 inAsia = not na(time(timeframe.period, asiaSess, "Europe/Paris"))
 var int   asiaStart = na
@@ -232,8 +209,6 @@ var line  lnMPD = newLine(colMPD)
 var line  lnOW  = newLine(colOW)
 var line  lnOPW = newLine(colOPW)
 var line  lnCPW = newLine(colCPW)
-var line  lnF23M = newLine(colF23M)
-var line  lnF23W = newLine(colF23W)
 var line  lnAH  = newLine(colAsia)
 var line  lnAL  = newLine(colAsia)
 var line  lnNH  = newLine(colNY)
@@ -249,8 +224,6 @@ var label lbMPD = newLabel(colMPD)
 var label lbOW  = newLabel(colOW)
 var label lbOPW = newLabel(colOPW)
 var label lbCPW = newLabel(colCPW)
-var label lbF23M = newLabel(colF23M)
-var label lbF23W = newLabel(colF23W)
 var label lbAH  = newLabel(colAsia)
 var label lbAL  = newLabel(colAsia)
 var label lbNH  = newLabel(colNY)
@@ -283,18 +256,16 @@ if barstate.islast
     setLevel(lnOW,  lbOW,  dayStart, wOpen,   "Open Week",       showOW,  colOW)
     setLevel(lnOPW, lbOPW, dayStart, pwOpen,  "Open Prev Week",  showOPW, colOPW)
     setLevel(lnCPW, lbCPW, dayStart, pwClose, "Close Prev Week", showCPW, colCPW)
-    setLevel(lnF23M, lbF23M, dayStart, f23M, "F-23M", showF23M, colF23M)
-    setLevel(lnF23W, lbF23W, dayStart, f23W, "F-23W", showF23W, colF23W)
     setLevel(lnAH,  lbAH,  nz(asiaStart, dayStart), asiaH, "H-Asia", showAsia, colAsia)
     setLevel(lnAL,  lbAL,  nz(asiaStart, dayStart), asiaL, "L-Asia", showAsia, colAsia)
     setLevel(lnNH,  lbNH,  nz(nyStart, dayStart),   nH,    "H-NY",   showNY, colNY)
     setLevel(lnNL,  lbNL,  nz(nyStart, dayStart),   nL,    "L-NY",   showNY, colNY)
 
     // Étiquettes proches : placées l'une devant l'autre (colonnes) au lieu de se superposer
-    lvLines  = array.from(lnTH, lnTL, lnMT, lnPDH, lnPDL, lnDO, lnMPD, lnOW, lnOPW, lnCPW, lnF23M, lnF23W, lnAH, lnAL, lnNH, lnNL)
-    lvLabels = array.from(lbTH, lbTL, lbMT, lbPDH, lbPDL, lbDO, lbMPD, lbOW, lbOPW, lbCPW, lbF23M, lbF23W, lbAH, lbAL, lbNH, lbNL)
-    lvPrices = array.from(nz(tH, NOVAL), nz(tL, NOVAL), nz(mToday, NOVAL), nz(pdH, NOVAL), nz(pdL, NOVAL), nz(dOpen, NOVAL), nz(mpd, NOVAL), nz(wOpen, NOVAL), nz(pwOpen, NOVAL), nz(pwClose, NOVAL), nz(f23M, NOVAL), nz(f23W, NOVAL), nz(asiaH, NOVAL), nz(asiaL, NOVAL), nz(nH, NOVAL), nz(nL, NOVAL))
-    lvShow   = array.from(showToday, showToday, showMT, showPD, showPD, showDO, showMPD, showOW, showOPW, showCPW, showF23M, showF23W, showAsia, showAsia, showNY, showNY)
+    lvLines  = array.from(lnTH, lnTL, lnMT, lnPDH, lnPDL, lnDO, lnMPD, lnOW, lnOPW, lnCPW, lnAH, lnAL, lnNH, lnNL)
+    lvLabels = array.from(lbTH, lbTL, lbMT, lbPDH, lbPDL, lbDO, lbMPD, lbOW, lbOPW, lbCPW, lbAH, lbAL, lbNH, lbNL)
+    lvPrices = array.from(nz(tH, NOVAL), nz(tL, NOVAL), nz(mToday, NOVAL), nz(pdH, NOVAL), nz(pdL, NOVAL), nz(dOpen, NOVAL), nz(mpd, NOVAL), nz(wOpen, NOVAL), nz(pwOpen, NOVAL), nz(pwClose, NOVAL), nz(asiaH, NOVAL), nz(asiaL, NOVAL), nz(nH, NOVAL), nz(nL, NOVAL))
+    lvShow   = array.from(showToday, showToday, showMT, showPD, showPD, showDO, showMPD, showOW, showOPW, showCPW, showAsia, showAsia, showNY, showNY)
     placedY  = array.new_float()
     placedC  = array.new_int()
     idx      = array.sort_indices(lvPrices, order.descending)
@@ -347,8 +318,6 @@ plot(mpd,   "M-PD",    colMPD,   display = display.data_window)
 plot(wOpen,   "Open Week",       colOW,  display = display.data_window)
 plot(pwOpen,  "Open Prev Week",  colOPW, display = display.data_window)
 plot(pwClose, "Close Prev Week", colCPW, display = display.data_window)
-plot(f23M,    "F-23M",           colF23M, display = display.data_window)
-plot(f23W,    "F-23W",           colF23W, display = display.data_window)
 plot(asiaH, "H-Asia",  colAsia,  display = display.data_window)
 plot(asiaL, "L-Asia",  colAsia,  display = display.data_window)
 plot(nH,    "H-NY",    colNY,    display = display.data_window)
